@@ -1,0 +1,117 @@
+import { useEffect, useRef, type ComponentType } from 'react'
+import { AnimatePresence, motion } from 'framer-motion'
+import { authErrorMessage } from '../lib/auth'
+import { ease } from '../lib/motion'
+import { useDocumentTitle, useRouter } from '../lib/router'
+import { useSession } from '../lib/session'
+import { DataProvider } from './data'
+import Analytics from './pages/Analytics'
+import Automations from './pages/Automations'
+import Calendar from './pages/Calendar'
+import Create from './pages/Create'
+import Library from './pages/Library'
+import Overview from './pages/Overview'
+import Settings from './pages/Settings'
+import { pageLabel, Shell } from './Shell'
+import { Splash } from './Splash'
+import { ToastProvider, useToast } from './toast'
+
+const PAGES: Record<string, ComponentType> = {
+  '/dashboard': Overview,
+  '/dashboard/create': Create,
+  '/dashboard/library': Library,
+  '/dashboard/calendar': Calendar,
+  '/dashboard/automations': Automations,
+  '/dashboard/analytics': Analytics,
+  '/dashboard/settings': Settings,
+}
+
+/** Everything under /dashboard: sign-in guard, shared providers, and the page switcher. */
+export default function Dashboard() {
+  const { user, status } = useSession()
+  const { path, search, navigate } = useRouter()
+
+  useEffect(() => {
+    if (status === 'ready' && !user) {
+      navigate(`/login?${new URLSearchParams({ next: path + search })}`, { replace: true })
+    }
+  }, [status, user, path, search, navigate])
+
+  if (!user) return <Splash />
+
+  return (
+    <DataProvider>
+      <ToastProvider>
+        <Shell>
+          <Arrivals />
+          <Pages />
+        </Shell>
+      </ToastProvider>
+    </DataProvider>
+  )
+}
+
+function Pages() {
+  const { path, search, navigate } = useRouter()
+  const Page = PAGES[path]
+  useDocumentTitle(`${pageLabel(path)} — FlowAI`)
+
+  useEffect(() => {
+    if (!Page) navigate('/dashboard', { replace: true })
+  }, [Page, navigate])
+
+  if (!Page) return null
+  // The composer remounts per post, so switching from one edit to another starts clean.
+  const key = path === '/dashboard/create' ? path + search : path
+
+  return (
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={key}
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        exit={{ opacity: 0, y: -8, transition: { duration: 0.18 } }}
+        transition={{ duration: 0.45, ease }}
+      >
+        <Page />
+      </motion.div>
+    </AnimatePresence>
+  )
+}
+
+/** One-off messages carried in the URL by redirects from the API: confirmations, OAuth results. */
+function Arrivals() {
+  const { path, search, navigate } = useRouter()
+  const { refresh } = useSession()
+  const toast = useToast()
+  // Development StrictMode runs effects twice; one URL should only ever announce itself once.
+  const handled = useRef<string | null>(null)
+
+  useEffect(() => {
+    const params = new URLSearchParams(search)
+    const verified = params.get('verified')
+    const linked = params.get('linked')
+    const error = params.get('error')
+    if ((!verified && !linked && !error) || handled.current === search) return
+    handled.current = search
+
+    if (verified) toast('Email confirmed. You’re all set.')
+    if (linked) toast(`${linked === 'github' ? 'GitHub' : 'Google'} is connected. You can use it to sign in.`)
+    if (error) {
+      const provider = params.get('provider')
+      toast(
+        error === 'oauth_taken'
+          ? `That ${provider === 'github' ? 'GitHub' : 'Google'} account already belongs to another FlowAI user.`
+          : (authErrorMessage(error, provider) ?? 'Something went wrong.'),
+        'error',
+      )
+    }
+    if (verified || linked) refresh().catch(() => {})
+
+    ;['verified', 'linked', 'error', 'provider'].forEach((k) => params.delete(k))
+    const rest = params.toString()
+    navigate(path + (rest ? `?${rest}` : ''), { replace: true })
+  }, [search, path, navigate, toast, refresh])
+
+  return null
+}

@@ -1,0 +1,156 @@
+@import "tailwindcss";
+
+@theme {
+  --color-ink: #050505;
+  --color-ink-2: #0a0a0a;
+  --color-card: #101010;
+  --color-card-2: #151516;
+  --color-line: rgb(255 255 255 / 0.08);
+  --color-line-2: rgb(255 255 255 / 0.14);
+  --color-fg: #f5f4f0;
+  --color-muted: #a1a1aa;
+  --color-dim: #6b6b73;
+  --color-accent: #6366f1;
+  --color-accent-2: #8b5cf6;
+  --color-accent-soft: #a5b4fc;
+  --color-bone: #ecebe6;
+
+  --color-ok: #5ee39a;
+  --color-plan: #8b93ff;
+  --color-fail: #f87171;
+  --color-warn: #f5b04c;
+  --color-draft: #71717a;
+
+  --font-sans: "Geist Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-serif: "Instrument Serif", ui-serif, Georgia, serif;
+  --font-mono: "Geist Mono Variable", ui-monospace, SFMono-Regular, monospace;
+
+  --ease-expo: cubic-bezier(0.19, 1, 0.22, 1);
+  --ease-quint: cubic-bezier(0.22, 1, 0.36, 1);
+
+  --animate-marquee: marquee 38s linear infinite;
+  --animate-marquee-y: marquee-y 50s linear infinite;
+  --animate-shimmer: shimmer 1.6s linear infinite;
+  --animate-blink: blink 1s steps(1) infinite;
+
+  @keyframes marquee {
+    to { transform: translateX(-50%); }
+  }
+  @keyframes marquee-y {
+    to { transform: translateY(-50%); }
+  }
+  @keyframes shimmer {
+    from { background-position: 200% 0; }
+    to { background-position: -200% 0; }
+  }
+  @keyframes blink {
+    50% { opacity: 0; }
+  }
+}
+
+@layer base {
+  html {
+    background: var(--color-ink);
+    color-scheme: dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background: var(--color-ink);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: var(--color-accent);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: 1.5px solid var(--color-accent-soft);
+    outline-offset: 3px;
+    border-radius: 4px;
+  }
+
+  html.has-cursor,
+  html.has-cursor * {
+    cursor: none !important;
+  }
+}
+
+@utility container-x {
+  margin-inline: auto;
+  width: 100%;
+  max-width: 1440px;
+  padding-inline: 1.25rem;
+  @media (width >= 48rem) {
+    padding-inline: 2rem;
+  }
+  @media (width >= 80rem) {
+    padding-inline: 3rem;
+  }
+}
+
+@utility skeleton {
+  background: linear-gradient(90deg, rgb(255 255 255 / 0.05) 0%, rgb(255 255 255 / 0.12) 50%, rgb(255 255 255 / 0.05) 100%);
+  background-size: 200% 100%;
+  animation: var(--animate-shimmer);
+}
+
+@utility mask-x {
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+
+@utility no-scrollbar {
+  scrollbar-width: none;
+  &::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* The drawn line                                                       */
+/* ------------------------------------------------------------------ */
+
+.thread-node {
+  background: var(--color-ink);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 0.28);
+  transition:
+    background-color 0.5s var(--ease-expo),
+    box-shadow 0.5s var(--ease-expo),
+    scale 0.5s var(--ease-expo);
+}
+.thread-node[data-on] {
+  background: #c7ccff;
+  box-shadow:
+    0 0 0 3px rgb(99 102 241 / 0.22),
+    0 0 16px 2px rgb(129 140 248 / 0.7);
+  scale: 1.15;
+}
+.thread-node-light {
+  background: var(--color-bone);
+  box-shadow: inset 0 0 0 1px rgb(5 5 5 / 0.35);
+}
+.thread-node-light[data-on] {
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.18);
+}
+
+/* When the pen closes its circle around the final button, the button answers. */
+[data-thread='end'][data-on] a {
+  box-shadow:
+    0 0 0 6px rgb(99 102 241 / 0.25),
+    0 18px 60px -10px rgb(99 102 241 / 0.8);
+}
+
+/* A crossed-out phrase goes quiet once the pen has been through it. */
+[data-thread='scribble'] {
+  transition: opacity 0.9s var(--ease-expo);
+}
+[data-thread='scribble'][data-on] {
+  opacity: 0.3;
+}

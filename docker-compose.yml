@@ -1,0 +1,30 @@
+services:
+  # Laravel API on http://localhost:8000. The Vite dev server proxies /api, /sanctum
+  # and /oauth here, so the browser only ever talks to one origin.
+  api:
+    build: ./docker/php
+    volumes:
+      - ./backend:/app
+      # vendor/ lives in a Docker volume: reading thousands of files across the
+      # Windows bind mount on every request made each one take over a second.
+      - vendor:/app/vendor
+    ports:
+      - "8000:8000"
+    environment:
+      # Serve a few requests at once; the SPA fires several in parallel.
+      PHP_CLI_SERVER_WORKERS: 4
+    # First start installs dependencies, creates .env, the app key and the SQLite file,
+    # and migrates (docker/php/start.sh). Restart the container after editing .env.
+    command: start-api
+    depends_on:
+      - mailpit
+
+  # Catches every email the API sends. Inbox at http://localhost:8025
+  mailpit:
+    image: axllent/mailpit
+    ports:
+      - "8025:8025"
+      - "1025:1025"
+
+volumes:
+  vendor:
