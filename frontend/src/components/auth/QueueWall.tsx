@@ -111,7 +111,7 @@ function Column({ cards, duration, reverse }: { cards: Card[]; duration: number;
 
 function QueueCard({ card }: { card: Card }) {
   return (
-    <div className="rounded-2xl border border-white/[0.07] bg-[#121214] p-2.5 shadow-[0_30px_60px_-30px_rgb(0_0_0_/_0.9)]">
+    <div className="rounded-2xl border border-white/[0.07] bg-panel-3 p-2.5 shadow-[0_30px_60px_-30px_rgb(0_0_0_/_0.9)]">
       <div className="flex items-center justify-between gap-2 px-1 pb-2.5 pt-0.5">
         <span className="flex min-w-0 items-center gap-2 text-[11.5px] text-muted">
           <PlatformIcon id={card.platform} className="size-3.5 text-fg" />

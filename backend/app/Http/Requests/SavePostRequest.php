@@ -5,6 +5,8 @@ namespace App\Http\Requests;
 use App\Enums\Platform;
 use App\Enums\PostFormat;
 use App\Enums\PostStatus;
+use App\Models\Account;
+use App\Services\Publishing\PlatformSpecs;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Validator;
@@ -27,7 +29,12 @@ class SavePostRequest extends FormRequest
             'format' => ['required', Rule::enum(PostFormat::class)],
             'platforms' => ['required', 'array', 'min:1'],
             'platforms.*' => ['distinct', Rule::enum(Platform::class)],
-            'status' => ['required', Rule::enum(PostStatus::class)],
+            // Publishing, submitted and failed come from publishing runs, not from the composer.
+            'status' => ['required', Rule::in(array_map(fn (PostStatus $s) => $s->value, PostStatus::chosenByHand()))],
+            'account_id' => ['nullable', Rule::exists('accounts', 'id')->where('user_id', $this->user()->id)],
+            'placement' => ['nullable', 'string', 'max:20'],
+            'asset_ids' => ['nullable', 'array', 'max:35'],
+            'asset_ids.*' => ['integer', 'distinct', Rule::exists('assets', 'id')->where('user_id', $this->user()->id)],
             'queue' => ['sometimes', 'boolean'],
             'scheduled_at' => $scheduling ? ['required', 'date', 'after:now'] : ['nullable', 'date'],
         ];
@@ -57,7 +64,10 @@ class SavePostRequest extends FormRequest
             function (Validator $validator) {
                 $length = mb_strlen((string) $this->input('body'));
 
-                foreach ((array) $this->input('platforms') as $value) {
+                $account = $this->account();
+                $platforms = $account ? [$account->platform->value] : (array) $this->input('platforms');
+
+                foreach ($platforms as $value) {
                     $platform = Platform::tryFrom((string) $value);
 
                     if ($platform && $length > $platform->characterLimit()) {
@@ -67,7 +77,24 @@ class SavePostRequest extends FormRequest
                         );
                     }
                 }
+
+                // Posts that a phone will publish on their own must pass the platform's spec first.
+                $scheduling = $this->input('status') === PostStatus::Scheduled->value || $this->boolean('queue');
+                if ($account?->automation && $scheduling && ! $validator->errors()->hasAny(['asset_ids', 'asset_ids.*'])) {
+                    $ids = (array) $this->input('asset_ids', []);
+                    $assets = $this->user()->assets()->whereIn('id', $ids)->get()->sortBy(fn ($a) => array_search($a->id, $ids))->values();
+                    $result = app(PlatformSpecs::class)->check($account->platform, $this->input('placement'), (string) $this->input('body'), $assets);
+
+                    foreach (collect($result['checks'])->where('status', 'fail') as $check) {
+                        $validator->errors()->add('checks', $check['detail']);
+                    }
+                }
             },
         ];
+    }
+
+    public function account(): ?Account
+    {
+        return $this->filled('account_id') ? $this->user()->accounts()->find($this->input('account_id')) : null;
     }
 }

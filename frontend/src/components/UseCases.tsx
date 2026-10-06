@@ -42,10 +42,10 @@ export function UseCases() {
   return (
     <section id="use-cases" className="relative py-28 md:py-40">
       <div className="container-x">
-        <SectionLabel index="13">Use cases</SectionLabel>
+        <SectionLabel index="12">Use cases</SectionLabel>
         <LineReveal
           className="mt-10 text-[clamp(2.6rem,6vw,6.25rem)] font-medium leading-[0.92] tracking-[-0.05em]"
-          lines={['Built for the way', <Serif data-thread="circle">you create.</Serif>]}
+          lines={['Built for the way', <Serif>you create.</Serif>]}
         />
 
         <div data-thread="rail" className="mt-16 grid gap-10 md:mt-24 lg:grid-cols-12">

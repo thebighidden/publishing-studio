@@ -30,6 +30,7 @@ class UserResource extends JsonResource
                 'formats' => $this->preferences['formats'] ?? [],
             ],
             'has_password' => $this->hasPassword(),
+            'publishing_paused' => $this->publishingPaused(),
             'providers' => $this->socialAccounts()->pluck('provider'),
             'created_at' => $this->created_at?->toIso8601ZuluString(),
         ];

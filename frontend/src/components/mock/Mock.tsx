@@ -35,7 +35,7 @@ export function AppFrame({
   return (
     <div
       className={cn(
-        'relative overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c] text-left shadow-[0_60px_140px_-40px_rgb(0_0_0_/_0.95)]',
+        'relative overflow-hidden rounded-xl border border-white/[0.05] bg-panel text-left text-fg shadow-[0_60px_140px_-40px_rgb(0_0_0_/_0.95)]',
         className,
       )}
     >

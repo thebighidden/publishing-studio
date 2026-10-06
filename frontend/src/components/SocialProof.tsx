@@ -1,8 +1,9 @@
-import { Marquee } from './ui/Marquee'
+import { VelocityMarquee } from './ui/Marquee'
 import { PLATFORMS, PlatformIcon, type PlatformId } from './ui/PlatformIcon'
 import { Reveal } from './ui/Reveal'
 
 const ORDER: PlatformId[] = ['instagram', 'tiktok', 'x', 'linkedin', 'facebook', 'youtube', 'pinterest']
+const FORMATS = ['posts', 'captions', 'threads', 'carousels', 'reels', 'shorts', 'articles', 'thumbnails']
 
 export function SocialProof() {
   return (
@@ -18,17 +19,30 @@ export function SocialProof() {
         </Reveal>
       </div>
 
-      <Marquee className="mt-10 md:mt-14">
+      {/* Two strips running against each other; both answer the speed and direction of the scroll. */}
+      <VelocityMarquee className="mt-10 md:mt-14" speed={-2.2}>
         {ORDER.map((id) => (
           <div
             key={id}
-            className="flex items-center gap-4 px-8 text-fg/35 transition-colors duration-500 hover:text-fg md:gap-5 md:px-12"
+            className="flex items-center gap-4 px-6 text-fg/35 transition-colors duration-500 hover:text-fg md:gap-6 md:px-10"
           >
-            <PlatformIcon id={id} className="size-7 md:size-9" />
-            <span className="text-3xl font-medium tracking-[-0.04em] md:text-5xl">{PLATFORMS[id].name}</span>
+            <PlatformIcon id={id} className="size-8 md:size-[clamp(2.25rem,4vw,4rem)]" />
+            <span className="text-[clamp(2.25rem,6.4vw,6.5rem)] font-medium leading-none tracking-[-0.05em]">
+              {PLATFORMS[id].name}
+            </span>
           </div>
         ))}
-      </Marquee>
+      </VelocityMarquee>
+      <VelocityMarquee className="mt-3 md:mt-5" speed={1.6}>
+        {FORMATS.map((f) => (
+          <div key={f} className="flex items-center gap-6 px-6 md:gap-10 md:px-10">
+            <span className="font-serif text-[clamp(2.25rem,6.4vw,6.5rem)] italic leading-[1.1] tracking-[-0.02em] text-fg/[0.14]">
+              {f}
+            </span>
+            <span aria-hidden className="size-2 rounded-full bg-accent/60 md:size-3" />
+          </div>
+        ))}
+      </VelocityMarquee>
     </section>
   )
 }

@@ -51,7 +51,7 @@ export function PipelineScene({ startAfter = 1.2 }: { startAfter?: number }) {
       <div className="flex w-full max-w-[620px] origin-center flex-col items-center gap-7 [@media(max-height:860px)]:scale-[0.86]">
         <Steps step={step} published={phase === 4} />
 
-        <div className="relative w-full max-w-[460px] overflow-hidden rounded-2xl border border-white/[0.08] bg-[#111113] p-4 shadow-[0_40px_80px_-30px_rgb(0_0_0_/_0.95)]">
+        <div className="relative w-full max-w-[460px] overflow-hidden rounded-2xl border border-white/[0.08] bg-panel-2 p-4 shadow-[0_40px_80px_-30px_rgb(0_0_0_/_0.95)]">
           <div className="flex items-center justify-between">
             <MockLabel>Prompt</MockLabel>
             <span className="flex items-center gap-1.5 rounded-md border border-line px-2 py-1 text-[11px] text-muted">
@@ -83,7 +83,7 @@ export function PipelineScene({ startAfter = 1.2 }: { startAfter?: number }) {
             <span
               className={cn(
                 'relative overflow-hidden rounded-full px-3.5 py-1.5 text-[12px] font-medium transition-colors duration-500',
-                phase === 1 ? 'bg-accent text-white' : 'bg-fg text-ink',
+                phase === 1 ? 'bg-accent text-on-accent' : 'bg-fg text-ink',
               )}
             >
               {phase === 0 ? 'Generate' : phase === 1 ? 'Generating…' : 'Generated'}
@@ -191,7 +191,7 @@ function Steps({ step, published }: { step: number; published: boolean }) {
 function OutputCard({ output, phase }: { output: Output; phase: number }) {
   const chip = CHIP[phase]
   return (
-    <div className="flex h-full flex-col rounded-xl border border-white/[0.08] bg-[#121214] p-2.5 shadow-[0_30px_60px_-30px_rgb(0_0_0_/_0.9)]">
+    <div className="flex h-full flex-col rounded-xl border border-white/[0.08] bg-panel-3 p-2.5 shadow-[0_30px_60px_-30px_rgb(0_0_0_/_0.9)]">
       <div className="flex items-center justify-between gap-2 px-0.5">
         <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-fg">
           <PlatformIcon id={output.platform} className="size-3.5" />

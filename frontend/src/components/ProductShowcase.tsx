@@ -51,10 +51,10 @@ export function ProductShowcase() {
         <SectionLabel index="02">Workspace</SectionLabel>
         <div className="mt-10 grid gap-8 lg:grid-cols-12 lg:items-end">
           <LineReveal
-            className="text-[clamp(2.4rem,5.4vw,5.5rem)] font-medium leading-[0.95] tracking-[-0.045em] lg:col-span-8"
-            lines={['One workspace for your', <>entire <Serif data-thread="underline">content workflow.</Serif></>]}
+            className="text-[clamp(2.6rem,7.2vw,7.75rem)] font-medium leading-[0.88] tracking-[-0.055em] lg:col-span-9"
+            lines={['One workspace', 'for your entire', <Serif data-thread="underline">content workflow.</Serif>]}
           />
-          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-muted lg:col-span-4 lg:justify-self-end">
+          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-muted lg:col-span-3 lg:justify-self-end">
             Generate, customize, schedule and publish content without jumping between different tools.
           </Reveal>
         </div>
@@ -231,14 +231,14 @@ function Region({
       onMouseEnter={() => onHover(n)}
       className={cn(
         'relative rounded-lg transition-[box-shadow] duration-500',
-        active ? 'shadow-[0_0_0_1.5px_var(--color-accent),0_0_0_6px_rgb(99_102_241_/_0.12)]' : 'shadow-[0_0_0_1.5px_transparent]',
+        active ? 'shadow-[0_0_0_1.5px_var(--color-accent),0_0_0_6px_color-mix(in_oklab,var(--color-accent)_12%,transparent)]' : 'shadow-[0_0_0_1.5px_transparent]',
         className,
       )}
     >
       <span
         className={cn(
           'absolute -left-2.5 -top-2.5 z-10 grid size-5 place-items-center rounded-full font-mono text-[10px] transition-colors duration-500',
-          active ? 'bg-accent text-white' : 'border border-line-2 bg-[#161618] text-muted',
+          active ? 'bg-accent text-on-accent' : 'border border-line-2 bg-[#161618] text-muted',
         )}
       >
         {n}

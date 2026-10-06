@@ -24,7 +24,7 @@ export function AuthVisual({
   const my = useMotionValue(-1000)
   const sx = useSpring(mx, { stiffness: 140, damping: 22 })
   const sy = useSpring(my, { stiffness: 140, damping: 22 })
-  const spotlight = useMotionTemplate`radial-gradient(560px circle at ${sx}px ${sy}px, rgb(129 140 248 / 0.13), transparent 65%)`
+  const spotlight = useMotionTemplate`radial-gradient(560px circle at ${sx}px ${sy}px, color-mix(in oklab, var(--color-accent) 13%, transparent), transparent 65%)`
 
   const onMove = (e: PointerEvent) => {
     const r = ref.current?.getBoundingClientRect()
@@ -37,7 +37,7 @@ export function AuthVisual({
     <motion.div
       ref={ref}
       onPointerMove={onMove}
-      className="relative h-full overflow-hidden rounded-[28px] border border-line bg-[#0b0b0c]"
+      className="relative h-full overflow-hidden rounded-[28px] border border-line bg-panel"
       initial={{ clipPath: 'inset(100% 0% 0% 0% round 28px)' }}
       animate={{ clipPath: 'inset(0% 0% 0% 0% round 28px)' }}
       transition={{ duration: 1.3, ease: easeInOut, delay: base }}
@@ -65,7 +65,7 @@ export function AuthVisual({
       <motion.div aria-hidden className="pointer-events-none absolute inset-0" style={{ background: spotlight }} />
 
       <motion.div
-        className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-linear-to-b from-[#0b0b0c] to-transparent p-6 pb-14 font-mono text-[11px] uppercase tracking-[0.18em] text-muted"
+        className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between bg-linear-to-b from-panel to-transparent p-6 pb-14 font-mono text-[11px] uppercase tracking-[0.18em] text-muted"
         initial={{ opacity: 0, y: -10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.9, ease, delay: base + 0.9 }}
@@ -80,7 +80,7 @@ export function AuthVisual({
         <Clock />
       </motion.div>
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-[#0b0b0c] from-35% via-[#0b0b0c]/80 to-transparent px-8 pb-7 pt-40 xl:px-10 xl:pb-9">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-linear-to-t from-panel from-35% via-panel/80 to-transparent px-8 pb-7 pt-40 xl:px-10 xl:pb-9">
         <LineReveal
           as="p"
           play

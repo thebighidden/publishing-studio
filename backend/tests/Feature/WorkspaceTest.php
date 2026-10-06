@@ -29,7 +29,7 @@ class WorkspaceTest extends TestCase
 
         $this->actingAs($user)->spa()->getJson('/api/overview')
             ->assertOk()
-            ->assertJsonPath('counts', ['draft' => 2, 'scheduled' => 2, 'published' => 1, 'total' => 5])
+            ->assertJsonPath('counts', ['draft' => 2, 'scheduled' => 2, 'published' => 1, 'publishing' => 0, 'failed' => 0, 'total' => 5])
             ->assertJsonPath('due', 1)
             ->assertJsonCount(1, 'upcoming')
             ->assertJsonCount(2, 'drafts')

@@ -19,6 +19,27 @@ services:
     depends_on:
       - mailpit
 
+  # Runs queued work: AI agents, media generation, and publishing runs on the phones.
+  # Waits for the api service to finish installing dependencies on the first start.
+  worker:
+    build: ./docker/php
+    volumes:
+      - ./backend:/app
+      - vendor:/app/vendor
+    command: sh -c 'until [ -f vendor/autoload.php ] && [ -f .env ]; do sleep 2; done; exec php artisan queue:work --queue=publishing,agents,media,default --sleep=1 --tries=1 --timeout=900'
+    depends_on:
+      - api
+
+  # Fires due posts every minute and polls media generations (routes/console.php).
+  scheduler:
+    build: ./docker/php
+    volumes:
+      - ./backend:/app
+      - vendor:/app/vendor
+    command: sh -c 'until [ -f vendor/autoload.php ] && [ -f .env ]; do sleep 2; done; exec php artisan schedule:work'
+    depends_on:
+      - api
+
   # Catches every email the API sends. Inbox at http://localhost:8025
   mailpit:
     image: axllent/mailpit

@@ -67,7 +67,10 @@ export function useApi<T>(path: string | null, query?: Query) {
 /* ------------------------------------------------------------------ */
 
 export type Overview = {
-  counts: { draft: number; scheduled: number; published: number; total: number }
+  counts: { draft: number; scheduled: number; published: number; publishing: number; failed: number; total: number }
+  /** Things waiting on a person (the Inbox). */
+  inbox: number
+  publishing_paused: boolean
   due: number
   upcoming: Post[]
   drafts: Post[]
@@ -111,7 +114,7 @@ export const CHAR_LIMIT: Record<PlatformId, number> = {
 }
 
 /** What a post is right now. "Due" is scheduled for a time that has already passed. */
-export type PostState = 'draft' | 'scheduled' | 'due' | 'published'
+export type PostState = 'draft' | 'scheduled' | 'due' | 'publishing' | 'submitted' | 'published' | 'failed'
 
 export function postState(post: Post, now = Date.now()): PostState {
   if (post.status === 'scheduled' && post.scheduled_at && Date.parse(post.scheduled_at) < now) return 'due'
@@ -122,7 +125,10 @@ export const STATE: Record<PostState, { label: string; dot: string; text: string
   draft: { label: 'Draft', dot: 'bg-draft', text: 'text-muted', ring: 'border-white/10', tone: 'border-l-draft bg-white/[0.03] border-dashed' },
   scheduled: { label: 'Scheduled', dot: 'bg-plan', text: 'text-plan', ring: 'border-plan/30', tone: 'border-l-plan bg-plan/[0.08]' },
   due: { label: 'Due', dot: 'bg-warn', text: 'text-warn', ring: 'border-warn/30', tone: 'border-l-warn bg-warn/[0.08]' },
+  publishing: { label: 'Publishing', dot: 'bg-accent-soft animate-pulse', text: 'text-accent-soft', ring: 'border-accent/30', tone: 'border-l-accent-soft bg-accent/[0.08]' },
+  submitted: { label: 'Unconfirmed', dot: 'bg-warn', text: 'text-warn', ring: 'border-warn/30', tone: 'border-l-warn bg-warn/[0.06] border-dashed' },
   published: { label: 'Published', dot: 'bg-ok', text: 'text-ok', ring: 'border-ok/25', tone: 'border-l-ok bg-ok/[0.06]' },
+  failed: { label: 'Failed', dot: 'bg-fail', text: 'text-fail', ring: 'border-fail/30', tone: 'border-l-fail bg-fail/[0.08]' },
 }
 
 /**

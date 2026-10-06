@@ -3,7 +3,7 @@ import { AnimatePresence, motion } from 'framer-motion'
 import { CalendarClock, Check, Clapperboard, Copy, FileText, Image, ListPlus, Send, Trash2, Type } from 'lucide-react'
 import { PLATFORMS, PlatformIcon, type PlatformId } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
-import { api, ApiError, type Post, type PostFormat } from '../../lib/api'
+import { api, ApiError, type Account, type Asset, type Page, type Post, type PostFormat } from '../../lib/api'
 import { ease } from '../../lib/motion'
 import { cn } from '../../lib/cn'
 import { useRouter } from '../../lib/router'
@@ -16,8 +16,10 @@ import {
   PLATFORM_ORDER,
   postState,
   toInputs,
+  useApi,
   useInvalidate,
 } from '../data'
+import { AccountPicker, ChecksPanel, MediaStrip } from '../composer/Parts'
 import { PostPreview } from '../PostPreview'
 import { useOverview, useUser } from '../Shell'
 import { useToast } from '../toast'
@@ -60,12 +62,31 @@ export default function Create() {
   const [existing, setExisting] = useState<Post | null>(null)
   const [loading, setLoading] = useState(!!postId)
   const [title, setTitle] = useState('')
-  const [body, setBody] = useState('')
+  // Arriving from the Studio's "Use in a post": the text, or the media, to start from.
+  const [body, setBody] = useState(() => params.get('body') ?? '')
   const [format, setFormat] = useState<PostFormat>(user.preferences.formats[0] ?? 'text')
   const [platforms, setPlatforms] = useState<PlatformId[]>(
     user.preferences.platforms.length ? user.preferences.platforms : ['linkedin'],
   )
   const [preview, setPreview] = useState<PlatformId | null>(null)
+  const { data: accounts } = useApi<Account[]>('/accounts')
+  const [accountId, setAccountId] = useState<number | null>(null)
+  const [media, setMedia] = useState<Asset[]>([])
+  const [placement, setPlacement] = useState<string | null>(null)
+  const account = accounts?.find((a) => a.id === accountId) ?? null
+
+  useEffect(() => {
+    const ids = params.get('assets')
+    if (!ids || postId) return
+    api<Page<Asset>>('/assets', { query: { ids } })
+      .then((r) => {
+        const order = ids.split(',').map(Number)
+        const picked = [...r.data].sort((a, b) => order.indexOf(a.id) - order.indexOf(b.id))
+        setMedia(picked)
+        setFormat(picked.some((m) => m.kind === 'video') ? 'video' : 'image')
+      })
+      .catch(() => {})
+  }, [params, postId])
   const [when, setWhen] = useState<When>(params.get('at') ? 'pick' : 'draft')
   const [{ date, time }, setPicked] = useState(() => toInputs(params.get('at') ?? tomorrowMorning()))
   const [saving, setSaving] = useState(false)
@@ -83,6 +104,9 @@ export default function Create() {
         setBody(p.body)
         setFormat(p.format)
         setPlatforms(p.platforms)
+        setAccountId(p.account?.id ?? null)
+        setMedia(p.assets)
+        setPlacement(p.placement)
         setWhen(p.status === 'published' ? 'published' : p.status === 'scheduled' ? 'pick' : 'draft')
         if (p.scheduled_at) setPicked(toInputs(p.scheduled_at))
       })
@@ -100,6 +124,21 @@ export default function Create() {
   const togglePlatform = (id: PlatformId) => {
     setErrors(({ platforms: _, body: __, ...rest }) => rest)
     setPlatforms((list) => (list.includes(id) ? list.filter((p) => p !== id) : PLATFORM_ORDER.filter((p) => p === id || list.includes(p))))
+  }
+
+  const pickAccount = (a: Account | null) => {
+    setAccountId(a?.id ?? null)
+    setPlacement(null)
+    if (a) setPlatforms([a.platform])
+    setErrors(({ platforms: _, checks: __, ...rest }) => rest)
+  }
+
+  // The media decides the format: any video makes it a video post, images an image post.
+  const changeMedia = (next: Asset[]) => {
+    setMedia(next)
+    setErrors(({ checks: _, ...rest }) => rest)
+    if (next.some((m) => m.kind === 'video')) setFormat('video')
+    else if (next.length) setFormat('image')
   }
 
   const changeBody = (v: string) => {
@@ -127,6 +166,9 @@ export default function Create() {
       platforms,
       status: when === 'draft' ? 'draft' : when === 'published' ? 'published' : 'scheduled',
       queue: when === 'queue',
+      account_id: accountId,
+      asset_ids: media.map((m) => m.id),
+      placement: platforms.length === 1 ? placement : null,
       scheduled_at: when === 'pick' ? fromInputs(date, time) : when === 'published' ? (existing?.scheduled_at ?? null) : null,
     }
 
@@ -196,7 +238,6 @@ export default function Create() {
   return (
     <div>
       <PageHeader
-        index="02"
         eyebrow="Create"
         title={
           existing ? (
@@ -234,7 +275,7 @@ export default function Create() {
         <div className="mt-10 grid grid-cols-1 items-start gap-4 lg:grid-cols-[minmax(0,1fr)_380px]">
           <Stagger i={0} className="space-y-4">
             <Writer body={body} onBody={changeBody} format={format} platforms={platforms} onWriting={setWriting} />
-            <section className="rounded-xl border border-line bg-[#0b0b0c]">
+            <section className="rounded-xl border border-line bg-panel">
               <input
                 value={title}
                 onChange={(e) => setTitle(e.target.value)}
@@ -248,12 +289,16 @@ export default function Create() {
                 <FieldError message={errors.body} />
               </div>
 
+              <MediaStrip media={media} onChange={changeMedia} max={10} />
+
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-5 py-3">
                 <Segmented id="format" label="Format" options={FORMATS} value={format} onChange={setFormat} />
                 {strictest && <Counter length={length} limit={strictest} />}
               </div>
 
-              <div className="border-t border-line px-5 py-4">
+              <AccountPicker accounts={accounts ?? []} value={accountId} onChange={pickAccount} />
+
+              <div className={cn('border-t border-line px-5 py-4', account && 'hidden')}>
                 <div className="flex items-center justify-between">
                   <Label>Publish to</Label>
                   <span className="font-mono text-[10px] text-dim">{platforms.length} selected</span>
@@ -326,7 +371,7 @@ export default function Create() {
                 bodyClassName="p-3 pt-3"
               >
                 {active ? (
-                  <div className="overflow-hidden rounded-lg border border-line bg-[#0e0e10]">
+                  <div className="overflow-hidden rounded-lg border border-line bg-panel-2">
                     <AnimatePresence mode="wait" initial={false}>
                       <motion.div
                         key={active}
@@ -335,7 +380,7 @@ export default function Create() {
                         exit={{ opacity: 0, filter: 'blur(4px)' }}
                         transition={{ duration: 0.35, ease }}
                       >
-                        <PostPreview platform={active} title={title} body={body} format={format} user={user} />
+                        <PostPreview platform={active} title={title} body={body} format={format} user={user} assets={media} />
                       </motion.div>
                     </AnimatePresence>
                   </div>
@@ -346,6 +391,18 @@ export default function Create() {
             </Stagger>
 
             <Stagger i={2}>
+              <ChecksPanel
+                platforms={platforms}
+                caption={body}
+                media={media}
+                placement={placement}
+                onPlacement={setPlacement}
+                blocking={!!account?.automation}
+                error={errors.checks}
+              />
+            </Stagger>
+
+            <Stagger i={3}>
               <Panel title="When" bodyClassName="p-3 pt-3">
                 <div role="radiogroup" aria-label="When to publish" className="space-y-1.5">
                   <Option on={when === 'draft'} onSelect={() => setWhen('draft')} icon={FileText} title="Save as draft" body="Keep it for later." />
@@ -404,7 +461,7 @@ export default function Create() {
                   type="button"
                   onClick={save}
                   disabled={saving || writing}
-                  className="group relative isolate mt-3 flex h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-fg text-[13px] font-medium text-ink transition-[color,box-shadow] duration-500 hover:text-white hover:shadow-[0_0_0_4px_rgb(99_102_241_/_0.2)] disabled:cursor-wait disabled:opacity-70"
+                  className="group relative isolate mt-3 flex h-11 w-full items-center justify-center gap-2 overflow-hidden rounded-lg bg-fg text-[13px] font-medium text-ink transition-[color,box-shadow] duration-500 hover:text-white hover:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_20%,transparent)] disabled:cursor-wait disabled:opacity-70"
                 >
                   <span
                     aria-hidden
@@ -524,7 +581,7 @@ function Option({
       )}
     >
       <div className="flex items-center gap-3">
-        <span className={cn('grid size-7 shrink-0 place-items-center rounded-md transition-colors', on ? 'bg-accent text-white' : 'bg-white/[0.05] text-muted')}>
+        <span className={cn('grid size-7 shrink-0 place-items-center rounded-md transition-colors', on ? 'bg-accent text-on-accent' : 'bg-white/[0.05] text-muted')}>
           <Icon className="size-3.5" strokeWidth={1.75} />
         </span>
         <span className="min-w-0 flex-1">

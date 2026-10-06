@@ -2,12 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState, type KeyboardEv
 import { AnimatePresence, motion } from 'framer-motion'
 import {
   ArrowLeft,
-  CalendarDays,
-  ChartColumn,
   ChevronDown,
   CornerDownLeft,
-  FolderOpen,
-  LayoutGrid,
   LogOut,
   Mail,
   Menu as MenuIcon,
@@ -15,7 +11,6 @@ import {
   Plus,
   Search,
   Settings,
-  Workflow,
   X,
   type LucideIcon,
 } from 'lucide-react'
@@ -28,22 +23,11 @@ import { cn } from '../lib/cn'
 import { useRouter } from '../lib/router'
 import { useSession } from '../lib/session'
 import { firstName, postState, titleOf, useApi, type Overview } from './data'
+import { NAV, NAV_GROUPS, pageLabel, SETTINGS, type NavItem } from './nav'
 import { useToast } from './toast'
 import { Avatar, Kbd, Menu, Platforms, StateBadge } from './ui'
 
-type NavItem = { path: string; label: string; icon: LucideIcon; count?: (o: Overview) => number }
-
-export const NAV: NavItem[] = [
-  { path: '/dashboard', label: 'Overview', icon: LayoutGrid },
-  { path: '/dashboard/create', label: 'Create', icon: PenLine },
-  { path: '/dashboard/library', label: 'Library', icon: FolderOpen, count: (o) => o.counts.total },
-  { path: '/dashboard/calendar', label: 'Calendar', icon: CalendarDays, count: (o) => o.counts.scheduled },
-  { path: '/dashboard/automations', label: 'Automations', icon: Workflow },
-  { path: '/dashboard/analytics', label: 'Analytics', icon: ChartColumn },
-]
-const SETTINGS: NavItem = { path: '/dashboard/settings', label: 'Settings', icon: Settings }
-
-export const pageLabel = (path: string) => [...NAV, SETTINGS].find((n) => n.path === path)?.label ?? 'Overview'
+export { pageLabel }
 
 /* ------------------------------------------------------------------ */
 /* Shared overview data: sidebar counts and the Overview page read one fetch */
@@ -93,7 +77,7 @@ export function Shell({ children }: { children: ReactNode }) {
   return (
     <OverviewContext.Provider value={{ data: overview.data, loading: overview.loading }}>
       <div className="min-h-dvh bg-ink text-fg">
-        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] border-r border-line bg-[#0b0b0c] lg:block">
+        <aside className="fixed inset-y-0 left-0 z-40 hidden w-[236px] border-r border-line bg-panel lg:block">
           <Sidebar overview={overview.data} />
         </aside>
 
@@ -108,7 +92,7 @@ export function Shell({ children }: { children: ReactNode }) {
                 onClick={() => setDrawer(false)}
               />
               <motion.aside
-                className="fixed inset-y-0 left-0 z-50 w-[272px] border-r border-line bg-[#0b0b0c] lg:hidden"
+                className="fixed inset-y-0 left-0 z-50 w-[272px] border-r border-line bg-panel lg:hidden"
                 initial={{ x: '-100%' }}
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
@@ -162,7 +146,7 @@ function Sidebar({ overview, onClose }: { overview: Overview | null; onClose?: (
         }}
         aria-current={active ? 'page' : undefined}
         className={cn(
-          'group relative flex h-8 items-center gap-2.5 rounded-md px-2.5 text-[12.5px] transition-colors duration-200',
+          'group relative flex h-7.5 items-center gap-2.5 rounded-md px-2.5 text-[12.5px] transition-colors duration-200',
           active ? 'text-fg' : 'text-muted hover:text-fg',
         )}
       >
@@ -175,9 +159,14 @@ function Sidebar({ overview, onClose }: { overview: Overview | null; onClose?: (
         )}
         <Icon className="relative size-3.5 transition-transform duration-300 group-hover:scale-110" strokeWidth={1.75} />
         <span className="relative">{n.label}</span>
-        {count !== null && count > 0 && (
-          <span className="relative ml-auto font-mono text-[10px] tabular-nums text-dim">{count}</span>
-        )}
+        {count !== null && count > 0 &&
+          (n.urgent ? (
+            <span className="relative ml-auto grid h-4 min-w-4 place-items-center rounded-full bg-accent px-1 font-mono text-[9.5px] font-medium tabular-nums text-on-accent">
+              {count}
+            </span>
+          ) : (
+            <span className="relative ml-auto font-mono text-[10px] tabular-nums text-dim">{count}</span>
+          ))}
       </a>
     )
   }
@@ -225,7 +214,7 @@ function Sidebar({ overview, onClose }: { overview: Overview | null; onClose?: (
         <button
           type="button"
           onClick={() => navigate('/dashboard/create')}
-          className="group flex h-9 w-full items-center gap-2 rounded-md bg-fg px-3 text-[12.5px] font-medium text-ink transition-[background-color,box-shadow] duration-300 hover:bg-white hover:shadow-[0_0_0_4px_rgb(99_102_241_/_0.2)]"
+          className="group flex h-9 w-full items-center gap-2 rounded-md bg-fg px-3 text-[12.5px] font-medium text-ink transition-[background-color,box-shadow] duration-300 hover:bg-white hover:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_20%,transparent)]"
         >
           <Plus className="size-3.5 transition-transform duration-500 ease-expo group-hover:rotate-90" strokeWidth={2} />
           New post
@@ -233,11 +222,16 @@ function Sidebar({ overview, onClose }: { overview: Overview | null; onClose?: (
         </button>
       </div>
 
-      <nav className="mt-4 flex flex-col gap-0.5 px-3" aria-label="Workspace">
-        {NAV.map(item)}
+      <nav className="no-scrollbar mt-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3 pb-3" aria-label="Workspace" data-lenis-prevent>
+        {NAV_GROUPS.map((group, i) => (
+          <div key={group.label ?? i} className="flex flex-col gap-0.5">
+            {group.label && <p className="px-2.5 pb-1 pt-3.5 font-mono text-[9.5px] uppercase tracking-[0.16em] text-dim/80">{group.label}</p>}
+            {group.items.map(item)}
+          </div>
+        ))}
       </nav>
 
-      <div className="mt-auto space-y-2.5 p-3">
+      <div className="space-y-2.5 border-t border-line p-3">
         <a
           href="/dashboard/settings"
           onClick={(e) => {
@@ -491,7 +485,7 @@ function CommandPalette({ open, onClose }: { open: boolean; onClose: () => void 
             role="dialog"
             aria-label="Search"
             data-lenis-prevent
-            className="relative w-full max-w-xl overflow-hidden rounded-xl border border-line-2 bg-[#0e0e10] shadow-[0_40px_120px_-30px_rgb(0_0_0_/_0.95)]"
+            className="relative w-full max-w-xl overflow-hidden rounded-xl border border-line-2 bg-panel-2 shadow-[0_40px_120px_-30px_rgb(0_0_0_/_0.95)]"
             initial={{ opacity: 0, y: -12, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: -8, scale: 0.98 }}

@@ -46,7 +46,7 @@ export function Automations() {
           <SectionLabel index="09">Automations</SectionLabel>
           <LineReveal
             className="mt-10 text-[clamp(2.4rem,4.8vw,5rem)] font-medium leading-[0.95] tracking-[-0.045em]"
-            lines={['Turn repetitive', 'work into', <Serif data-thread="circle" data-exit="down">workflows.</Serif>]}
+            lines={['Turn repetitive', 'work into', <Serif>workflows.</Serif>]}
           />
           <div data-thread="rail" data-side="left">
           <Reveal delay={0.15} className="mt-8 max-w-sm text-[17px] leading-snug text-muted">
@@ -86,7 +86,7 @@ export function Automations() {
 
         <div ref={ref} className="lg:col-span-6 lg:col-start-7">
           <Reveal y={40}>
-            <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c] p-5 md:p-8">
+            <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-panel p-5 md:p-8">
               <DrawnBorder />
               <div
                 aria-hidden
@@ -106,7 +106,7 @@ export function Automations() {
               <div className="relative mx-auto mt-8 max-w-md">
                 {/* Trigger */}
                 <div className="flex items-center gap-3 rounded-lg border border-accent/50 bg-accent/10 px-4 py-3.5">
-                  <span className="grid size-8 place-items-center rounded-md bg-accent text-white">
+                  <span className="grid size-8 place-items-center rounded-md bg-accent text-on-accent">
                     <Clock3 className="size-4" />
                   </span>
                   <div>

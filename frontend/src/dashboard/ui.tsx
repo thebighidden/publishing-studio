@@ -12,7 +12,9 @@ import { ease } from '../lib/motion'
 import { cn } from '../lib/cn'
 import type { User } from '../lib/api'
 import { PlatformIcon, type PlatformId } from '../components/ui/PlatformIcon'
+import { useRouter } from '../lib/router'
 import { STATE, type PostState } from './data'
+import { pageIndex } from './nav'
 
 /* ------------------------------------------------------------------ */
 /* Surfaces                                                             */
@@ -34,7 +36,7 @@ export function Panel({
   bodyClassName?: string
 }) {
   return (
-    <section className={cn('min-w-0 rounded-xl border border-line bg-[#0b0b0c]', className)}>
+    <section className={cn('min-w-0 rounded-xl border border-line bg-panel', className)}>
       {(title || actions) && (
         <header className="flex items-start justify-between gap-4 px-4 pt-4 md:px-5 md:pt-5">
           <div className="min-w-0">
@@ -56,18 +58,21 @@ export function Label({ children, className }: { children: ReactNode; className?
 
 /** "(02) — Library", a big title that slides up out of a mask, and the page's actions. */
 export function PageHeader({
-  index,
+  index: given,
   eyebrow,
   title,
   sub,
   actions,
 }: {
-  index: string
+  /** Defaults to the page's place in the sidebar. */
+  index?: string
   eyebrow: string
   title: ReactNode
   sub?: ReactNode
   actions?: ReactNode
 }) {
+  const { path } = useRouter()
+  const index = given ?? pageIndex(path)
   return (
     <header className="flex flex-wrap items-end justify-between gap-x-8 gap-y-5">
       <div className="min-w-0">
@@ -142,7 +147,7 @@ type BtnProps = ButtonHTMLAttributes<HTMLButtonElement> & {
 }
 
 const BTN_VARIANT = {
-  primary: 'bg-fg text-ink hover:bg-white hover:shadow-[0_0_0_4px_rgb(99_102_241_/_0.2)] disabled:bg-fg/50',
+  primary: 'bg-fg text-ink hover:bg-white hover:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_20%,transparent)] disabled:bg-fg/50',
   ghost: 'border border-line-2 text-fg hover:border-white/30 hover:bg-white/[0.04] disabled:text-dim',
   subtle: 'text-muted hover:bg-white/[0.05] hover:text-fg disabled:text-dim',
   danger: 'border border-fail/30 text-fail hover:bg-fail/10 disabled:opacity-50',
@@ -172,7 +177,7 @@ export function Btn({ variant = 'ghost', size = 'md', icon: Icon, loading, child
 }
 
 export const inputClass =
-  'h-9 w-full rounded-md border border-line-2 bg-white/[0.02] px-3 text-[13px] text-fg outline-none transition-[border-color,box-shadow,background-color] duration-300 placeholder:text-dim hover:border-white/20 focus:border-accent-soft/60 focus:bg-white/[0.03] focus:shadow-[0_0_0_3px_rgb(99_102_241_/_0.18)] disabled:opacity-60 [color-scheme:dark]'
+  'h-9 w-full rounded-md border border-line-2 bg-white/[0.02] px-3 text-[13px] text-fg outline-none transition-[border-color,box-shadow,background-color] duration-300 placeholder:text-dim hover:border-white/20 focus:border-accent-soft/60 focus:bg-white/[0.03] focus:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_18%,transparent)] disabled:opacity-60 [color-scheme:dark]'
 
 export function FieldError({ message }: { message: string | null | undefined }) {
   return (
@@ -431,7 +436,7 @@ export function Modal({
             aria-label={typeof title === 'string' ? title : undefined}
             data-lenis-prevent
             className={cn(
-              'relative w-full max-w-md overflow-hidden rounded-xl border border-line-2 bg-[#0e0e10] shadow-[0_40px_120px_-30px_rgb(0_0_0_/_0.95)]',
+              'relative w-full max-w-md overflow-hidden rounded-xl border border-line-2 bg-panel-2 shadow-[0_40px_120px_-30px_rgb(0_0_0_/_0.95)]',
               className,
             )}
             initial={{ opacity: 0, y: 16, scale: 0.97 }}
@@ -493,7 +498,7 @@ export function Menu({
           <motion.div
             role="menu"
             className={cn(
-              'absolute top-full z-50 mt-1.5 min-w-[200px] origin-top overflow-hidden rounded-lg border border-line-2 bg-[#121214] p-1 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]',
+              'absolute top-full z-50 mt-1.5 min-w-[200px] origin-top overflow-hidden rounded-lg border border-line-2 bg-panel-3 p-1 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]',
               align === 'right' ? 'right-0' : 'left-0',
             )}
             initial={{ opacity: 0, y: -6, scale: 0.97 }}

@@ -1,29 +1,37 @@
 import { useRef } from 'react'
-import { motion, useInView, useScroll, useTransform } from 'framer-motion'
+import { motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { Check } from 'lucide-react'
 import { ease } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { useReady } from '../lib/ready'
 import { useLoop } from '../lib/useLoop'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { HERO_PHASES, HeroDashboard } from './mock/HeroDashboard'
 import { Button } from './ui/Button'
+import { FlowField } from './ui/FlowField'
 import { PlatformIcon } from './ui/PlatformIcon'
 import { LineReveal, Serif } from './ui/Reveal'
-
-const PIPELINE = ['Generate', 'Adapt', 'Schedule', 'Publish']
 
 export function Hero() {
   const ready = useReady()
   const sectionRef = useRef<HTMLElement>(null)
   const dashRef = useRef<HTMLDivElement>(null)
+  const copyRef = useRef<HTMLDivElement>(null)
+  // The bundle always leaves just under the copy, through the gap above the dashboard; on phones it climbs steeper.
+  const wide = useMediaQuery('(min-width: 768px)')
   const dashInView = useInView(dashRef, { margin: '0px 0px -20% 0px' })
   const phase = useLoop(HERO_PHASES, ready && dashInView)
 
   const { scrollYProgress } = useScroll({ target: sectionRef, offset: ['start start', 'end start'] })
   const headOpacity = useTransform(scrollYProgress, [0, 0.45], [1, 0.25])
+  // As the hero scrolls away, the fan of threads gathers back into one.
+  const gather = useTransform(scrollYProgress, [0.04, 0.42], [0, 1])
 
   const { scrollYProgress: dashProgress } = useScroll({ target: dashRef, offset: ['start end', 'start 0.2'] })
   const dashScale = useTransform(dashProgress, [0, 1], [0.9, 1])
+  // The screen rises out of the page: leaning back at first, flat by the time it's read.
+  const dashTilt = useTransform(dashProgress, [0, 1], [26, 0])
+  const reduce = useReducedMotion()
 
   const fade = (delay: number) => ({
     initial: { opacity: 0, y: 16 },
@@ -32,7 +40,16 @@ export function Hero() {
   })
 
   return (
-    <section id="top" ref={sectionRef} className="relative pt-28 md:pt-36">
+    <section id="top" ref={sectionRef} className="relative isolate pt-28 md:pt-36">
+      <FlowField
+        play={ready}
+        gather={gather}
+        quietRef={copyRef}
+        sourceRef={copyRef}
+        to={wide ? 0.4 : 0.24}
+        spread={wide ? 0.46 : 0.36}
+        className="pointer-events-none absolute inset-x-0 top-0 -z-10 h-[100svh] min-h-[620px] w-full [mask-image:linear-gradient(to_bottom,transparent,#000_12%,#000_72%,transparent)]"
+      />
       <div className="container-x relative">
         <motion.div style={{ opacity: headOpacity }}>
           <div className="flex items-center justify-between">
@@ -55,26 +72,17 @@ export function Hero() {
             as="h1"
             play={ready}
             delay={0.12}
-            className="mt-7 text-[clamp(3rem,9vw,9.5rem)] font-medium leading-[0.9] tracking-[-0.055em]"
+            className="mt-7 text-[clamp(2.9rem,10.4vw,11.5rem)] font-medium leading-[0.86] tracking-[-0.06em]"
             lines={[
               'Create once.',
-              <span className="block md:pl-[10vw]">
+              <span className="block md:pl-[8vw]">
                 Publish <Serif data-thread="underline" data-loop="">everywhere.</Serif>
               </span>,
             ]}
           />
 
           <div className="mt-10 grid gap-10 md:mt-14 md:grid-cols-12 md:items-end">
-            <motion.ol {...fade(0.5)} className="hidden font-mono text-[11px] leading-[1.9] text-dim md:col-span-3 md:block">
-              {PIPELINE.map((step, i) => (
-                <li key={step} className="flex gap-4">
-                  <span>0{i + 1}</span>
-                  <span className="text-muted">{step}</span>
-                </li>
-              ))}
-            </motion.ol>
-
-            <div className="md:col-span-6 md:col-start-7">
+            <div ref={copyRef} className="md:col-span-6 md:col-start-7">
               <motion.p {...fade(0.45)} className="max-w-[36ch] text-lg leading-snug text-muted md:text-[21px]">
                 Generate text, images, and videos with AI — then automatically adapt, schedule, and publish them across
                 your social platforms from one workspace.
@@ -106,7 +114,10 @@ export function Hero() {
             aria-hidden
             className="pointer-events-none absolute -top-28 left-1/2 h-56 w-[70%] -translate-x-1/2 rounded-[50%] bg-accent/25 blur-[110px]"
           />
-          <motion.div style={{ scale: dashScale }} className="relative origin-top">
+          <motion.div
+            style={{ scale: dashScale, rotateX: reduce ? 0 : dashTilt, transformPerspective: 1800 }}
+            className="relative origin-top"
+          >
             <HeroDashboard phase={phase} run={ready && dashInView} />
             <FloatingChips phase={phase} />
           </motion.div>
@@ -117,10 +128,10 @@ export function Hero() {
 }
 
 const CHIPS = [
-  { label: 'Generated', at: 2, pos: 'left-[-1.75rem] top-[58%]', float: 6 },
-  { label: 'Scheduled', at: 3, pos: 'left-[44%] top-[-1.2rem]', float: 7 },
-  { label: 'Published', at: 4, pos: 'right-[16%] bottom-[-1.2rem]', float: 6.5 },
-  { label: '3 Platforms', at: 3, pos: 'left-[26%] bottom-[-1.2rem]', float: 7.5, icons: true },
+  { label: 'Generated', at: 2, pos: 'left-[-3.25rem] top-[44%]', float: 6 },
+  { label: 'Scheduled', at: 3, pos: 'right-[-2.75rem] top-[22%]', float: 7 },
+  { label: 'Published', at: 4, pos: 'right-[12%] bottom-[-1.4rem]', float: 6.5 },
+  { label: '3 Platforms', at: 3, pos: 'left-[22%] bottom-[-1.4rem]', float: 7.5, icons: true },
 ]
 
 function FloatingChips({ phase }: { phase: number }) {
@@ -137,26 +148,32 @@ function FloatingChips({ phase }: { phase: number }) {
           >
             <div
               className={cn(
-                'flex items-center gap-2 rounded-lg border bg-[#0e0e10]/90 px-3 py-2 text-[12px] shadow-[0_20px_40px_-12px_rgb(0_0_0_/_0.8)] backdrop-blur transition-all duration-500',
-                on ? 'border-white/20 text-fg' : 'border-line text-dim',
+                'flex items-center gap-2.5 rounded-full border py-1.5 pl-1.5 pr-4 text-[13px] font-medium tracking-[-0.01em] shadow-[0_24px_50px_-14px_rgb(0_0_0_/_0.9)] transition-[background-color,border-color,color,scale] duration-700 ease-expo',
+                on ? 'scale-100 border-transparent bg-bone text-ink' : 'scale-95 border-line-2 bg-panel-2 text-dim',
               )}
             >
               {c.icons ? (
-                <span className="flex -space-x-1">
+                <span className="flex -space-x-1.5">
                   {(['linkedin', 'instagram', 'x'] as const).map((p) => (
-                    <span key={p} className="grid size-5 place-items-center rounded-full border border-line-2 bg-ink">
-                      <PlatformIcon id={p} className="size-2.5" />
+                    <span
+                      key={p}
+                      className={cn(
+                        'grid size-6 place-items-center rounded-full border-2 transition-colors duration-700',
+                        on ? 'border-bone bg-ink text-fg' : 'border-panel-2 bg-card text-dim',
+                      )}
+                    >
+                      <PlatformIcon id={p} className="size-3" />
                     </span>
                   ))}
                 </span>
               ) : (
                 <span
                   className={cn(
-                    'grid size-4 place-items-center rounded-full transition-colors duration-500',
-                    on ? (c.at === 4 ? 'bg-ok text-ink' : 'bg-accent text-white') : 'border border-line-2',
+                    'grid size-6 place-items-center rounded-full transition-colors duration-700',
+                    on ? (c.at === 4 ? 'bg-ok text-ink' : 'bg-accent text-on-accent') : 'border border-line-2',
                   )}
                 >
-                  {on && <Check className="size-2.5" strokeWidth={3} />}
+                  {on && <Check className="size-3.5" strokeWidth={3} />}
                 </span>
               )}
               {c.label}

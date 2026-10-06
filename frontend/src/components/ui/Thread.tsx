@@ -155,14 +155,27 @@ export type Geometry = {
   Y: Float64Array
   maxY: Float64Array
   marks: Array<{ el: HTMLElement; at: number }>
-  surface: { top: number; height: number } | null
+  surfaces: Surface[]
+}
+
+/** A section painted over the page (paper, or the accent plate): the line is redrawn above it in a darker ink. */
+type Surface = { top: number; height: number; tone: 'paper' | 'signal' }
+
+const SURFACE_INK: Record<Surface['tone'], { base: string; ink: string }> = {
+  paper: { base: 'rgb(5 5 5 / 0.5)', ink: 'var(--color-accent)' },
+  signal: {
+    base: 'color-mix(in oklab, var(--color-on-accent) 45%, transparent)',
+    ink: 'var(--color-on-accent)',
+  },
 }
 
 const CHUNK = 1100
 
 function build(root: HTMLElement): Geometry | null {
   const W = root.clientWidth
-  const H = root.scrollHeight
+  // The page's own height. scrollHeight would include this SVG, so a page that was once taller
+  // (fallback fonts, say) would keep its old height and leave a blank band under the footer.
+  const H = root.offsetHeight
 
   const box = root.querySelector<HTMLElement>('.container-x')
   if (!box) return null
@@ -402,8 +415,10 @@ function build(root: HTMLElement): Geometry | null {
     chunks.push({ d, start, len: Math.max(0.01, segStart[i] - start), minY: lo, maxY: hi })
   }
 
-  const surfaceEl = root.querySelector<HTMLElement>('[data-thread-surface]')
-  const sr = surfaceEl ? offsetWithin(surfaceEl, root) : null
+  const surfaces = Array.from(root.querySelectorAll<HTMLElement>('[data-thread-surface]')).map((el): Surface => {
+    const r = offsetWithin(el, root)
+    return { top: r.y, height: r.h, tone: el.dataset.threadSurface === 'signal' ? 'signal' : 'paper' }
+  })
 
   return {
     W,
@@ -416,7 +431,7 @@ function build(root: HTMLElement): Geometry | null {
     Y: Float64Array.from(Y),
     maxY,
     marks: markSeg.map((mk) => ({ el: mk.el, at: segStart[mk.seg] })),
-    surface: sr ? { top: sr.y, height: sr.h } : null,
+    surfaces,
   }
 }
 
@@ -480,8 +495,9 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
   const geomRef = useRef<Geometry | null>(null)
 
   const baseRefs = useRef<Array<SVGPathElement | null>>([])
-  const surfRefs = useRef<Array<SVGPathElement | null>>([])
+  const surfRefs = useRef<Array<Array<SVGPathElement | null>>>([])
   const inkRefs = useRef<Array<SVGPathElement | null>>([])
+  const surfInkRefs = useRef<Array<Array<SVGPathElement | null>>>([])
   const headRef = useRef<HTMLDivElement>(null)
   const chunkState = useRef<number[]>([])
   const markState = useRef<boolean[]>([])
@@ -506,10 +522,13 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
     }
     run()
     document.fonts?.ready.then(schedule)
+    // A face that arrives late can move words inside a fixed-height section without resizing the page.
+    document.fonts?.addEventListener('loadingdone', schedule)
     const ro = new ResizeObserver(schedule)
     ro.observe(root)
     return () => {
       window.clearTimeout(timer)
+      document.fonts?.removeEventListener('loadingdone', schedule)
       ro.disconnect()
     }
   }, [rootRef])
@@ -548,7 +567,7 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
         const off = s === 2 ? 0 : s === 0 ? c.len : c.len - (l - c.start)
         const o = String(off)
         baseRefs.current[i]?.setAttribute('stroke-dashoffset', o)
-        surfRefs.current[i]?.setAttribute('stroke-dashoffset', o)
+        for (const refs of surfRefs.current) refs[i]?.setAttribute('stroke-dashoffset', o)
       }
       st[i] = s
     })
@@ -556,7 +575,7 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
     INK.forEach((seg, k) => {
       const d = polyline(g, Math.max(0, l - seg.from), Math.max(0, l - seg.to))
       inkRefs.current[k]?.setAttribute('d', d)
-      inkRefs.current[k + INK.length]?.setAttribute('d', d)
+      for (const refs of surfInkRefs.current) refs[k]?.setAttribute('d', d)
     })
 
     const head = headRef.current
@@ -580,14 +599,18 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
   useLayoutEffect(() => {
     if (!geom) return
     baseRefs.current.length = geom.chunks.length
-    surfRefs.current.length = geom.chunks.length
+    surfRefs.current = geom.surfaces.map((_, j) => {
+      const refs = surfRefs.current[j] ?? []
+      refs.length = geom.chunks.length
+      return refs
+    })
+    surfInkRefs.current.length = geom.surfaces.length
     chunkState.current = geom.chunks.map(() => -1)
     markState.current = geom.marks.map(() => false)
     paint(drawn.get())
   }, [geom, paint, drawn])
 
   if (!geom) return null
-  const s = geom.surface
 
   return (
     <>
@@ -599,7 +622,7 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
         viewBox={`0 0 ${geom.W} ${geom.H}`}
         fill="none"
       >
-        <g stroke="rgb(245 244 240 / 0.3)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+        <g stroke="color-mix(in oklab, var(--color-fg) 30%, transparent)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
           {geom.chunks.map((c, i) => (
             <path
               key={`${i}-${c.len}`}
@@ -618,45 +641,57 @@ export function Thread({ rootRef }: { rootRef: RefObject<HTMLDivElement | null> 
         </g>
       </svg>
 
-      {/* On the light section the line has to sit above the backdrop, in ink. */}
-      {s && (
-        <svg
-          aria-hidden
-          className="pointer-events-none absolute left-0 z-30"
-          style={{ top: s.top }}
-          width={geom.W}
-          height={s.height}
-          viewBox={`0 ${s.top} ${geom.W} ${s.height}`}
-          fill="none"
-        >
-          <g stroke="rgb(5 5 5 / 0.5)" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
-            {geom.chunks.map((c, i) =>
-              c.maxY < s.top || c.minY > s.top + s.height ? null : (
+      {/* Over a painted section the line has to sit above the backdrop, in a darker ink. */}
+      {geom.surfaces.map((s, j) => {
+        const tone = SURFACE_INK[s.tone]
+        return (
+          <svg
+            key={`${j}-${s.top}`}
+            aria-hidden
+            className="pointer-events-none absolute left-0 z-30"
+            style={{ top: s.top }}
+            width={geom.W}
+            height={s.height}
+            viewBox={`0 ${s.top} ${geom.W} ${s.height}`}
+            fill="none"
+          >
+            <g stroke={tone.base} strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+              {geom.chunks.map((c, i) =>
+                c.maxY < s.top || c.minY > s.top + s.height ? null : (
+                  <path
+                    key={`${i}-${c.len}`}
+                    ref={(el) => {
+                      ;(surfRefs.current[j] ??= [])[i] = el
+                    }}
+                    d={c.d}
+                    pathLength={c.len}
+                    strokeDasharray={`${c.len} ${c.len}`}
+                    strokeDashoffset={c.len}
+                  />
+                ),
+              )}
+            </g>
+            <g stroke={tone.ink} strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
+              {INK.map((seg, k) => (
                 <path
-                  key={`${i}-${c.len}`}
-                  ref={(el) => void (surfRefs.current[i] = el)}
-                  d={c.d}
-                  pathLength={c.len}
-                  strokeDasharray={`${c.len} ${c.len}`}
-                  strokeDashoffset={c.len}
+                  key={k}
+                  ref={(el) => {
+                    ;(surfInkRefs.current[j] ??= [])[k] = el
+                  }}
+                  strokeOpacity={seg.opacity}
                 />
-              ),
-            )}
-          </g>
-          <g stroke="var(--color-accent)" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-            {INK.map((seg, k) => (
-              <path key={k} ref={(el) => void (inkRefs.current[k + INK.length] = el)} strokeOpacity={seg.opacity} />
-            ))}
-          </g>
-        </svg>
-      )}
+              ))}
+            </g>
+          </svg>
+        )
+      })}
 
       <div
         ref={headRef}
         aria-hidden
         className="pointer-events-none absolute left-0 top-0 z-40 opacity-0 transition-opacity duration-500 [will-change:transform]"
       >
-        <span className="absolute size-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#c7ccff] shadow-[0_0_0_4px_rgb(99_102_241_/_0.2),0_0_22px_5px_rgb(99_102_241_/_0.55)]" />
+        <span className="absolute size-[9px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-accent-glow shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_20%,transparent),0_0_22px_5px_color-mix(in_oklab,var(--color-accent)_55%,transparent)]" />
         <span className="absolute size-7 -translate-x-1/2 -translate-y-1/2 animate-ping rounded-full border border-accent-soft/40 [animation-duration:2.2s]" />
       </div>
     </>

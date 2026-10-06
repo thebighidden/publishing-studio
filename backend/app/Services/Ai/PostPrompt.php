@@ -36,6 +36,8 @@ final class PostPrompt
         public readonly array $platforms,
         public readonly ?string $tone = null,
         public readonly ?string $draft = null,
+        // The account's editorial profile and memory, when the post is for one account.
+        public readonly ?string $voice = null,
     ) {}
 
     public function system(): string
@@ -59,6 +61,9 @@ final class PostPrompt
         ];
 
         $request = implode("\n", array_filter($lines, fn (?string $line) => $line !== null));
+        if (filled($this->voice)) {
+            $request = "<account_voice>\n".trim($this->voice)."\n</account_voice>\nWrite in this account's voice: its rules win over everything else.\n\n".$request;
+        }
 
         return filled($this->draft)
             ? "<draft>\n".trim($this->draft)."\n</draft>\n\n".$request

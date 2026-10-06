@@ -80,8 +80,8 @@ export function Cursor() {
             width: text ? 2 : size,
             height: text ? 26 : size,
             scale: down ? 0.85 : 1,
-            backgroundColor: label || text ? 'rgb(245 244 240)' : 'rgb(245 244 240 / 0)',
-            borderColor: text ? 'rgb(245 244 240 / 0)' : hovering ? 'rgb(245 244 240 / 0.9)' : 'rgb(245 244 240 / 0.35)',
+            backgroundColor: label || text ? 'var(--color-fg)' : 'color-mix(in oklab, var(--color-fg) 0%, transparent)',
+            borderColor: text ? 'color-mix(in oklab, var(--color-fg) 0%, transparent)' : hovering ? 'color-mix(in oklab, var(--color-fg) 90%, transparent)' : 'color-mix(in oklab, var(--color-fg) 35%, transparent)',
           }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
         >

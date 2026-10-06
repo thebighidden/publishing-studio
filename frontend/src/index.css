@@ -1,6 +1,6 @@
 @import "tailwindcss";
 
-@theme {
+@theme static {
   --color-ink: #050505;
   --color-ink-2: #0a0a0a;
   --color-card: #101010;
@@ -14,6 +14,23 @@
   --color-accent-2: #8b5cf6;
   --color-accent-soft: #a5b4fc;
   --color-bone: #ecebe6;
+
+  /* Raised surfaces: panels, popovers, tooltips. */
+  --color-panel: #0b0b0c;
+  --color-panel-2: #0f0f11;
+  --color-panel-3: #131315;
+
+  /* The bright point at the tip of the drawn line, and text set on an accent fill. */
+  --color-accent-glow: #c7ccff;
+  --color-on-accent: #ffffff;
+
+  /* Charts: one series colour and a five-step ramp, all derived from the accent. */
+  --color-series: color-mix(in oklab, var(--color-accent) 70%, var(--color-accent-soft));
+  --color-heat-1: color-mix(in oklab, var(--color-accent) 70%, #000);
+  --color-heat-2: var(--color-accent);
+  --color-heat-3: color-mix(in oklab, var(--color-accent) 60%, var(--color-accent-soft));
+  --color-heat-4: var(--color-accent-soft);
+  --color-heat-5: color-mix(in oklab, var(--color-accent-soft) 55%, #fff);
 
   --color-ok: #5ee39a;
   --color-plan: #8b93ff;
@@ -67,7 +84,7 @@
 
   ::selection {
     background: var(--color-accent);
-    color: #fff;
+    color: var(--color-on-accent);
   }
 
   :focus-visible {
@@ -82,16 +99,71 @@
   }
 }
 
+/* ------------------------------------------------------------------ */
+/* Palettes: each overrides the colour tokens above. The default is    */
+/* the one in @theme; the picker sets html[data-palette].               */
+/* ------------------------------------------------------------------ */
+
+html[data-palette='acid'] {
+  --color-ink: #070707; --color-ink-2: #0c0c0b; --color-card: #121211; --color-card-2: #171716;
+  --color-panel: #0d0d0c; --color-panel-2: #121211; --color-panel-3: #161615;
+  --color-fg: #f2f1ea; --color-muted: #a3a39a; --color-dim: #6e6e66; --color-bone: #ecebe2;
+  --color-accent: #c6f432; --color-accent-2: #8fd400; --color-accent-soft: #e1fb8f;
+  --color-accent-glow: #f0ffc2; --color-on-accent: #0a0a0a; --color-plan: #d4f86a;
+}
+html[data-palette='ember'] {
+  --color-ink: #0b0908; --color-ink-2: #100d0b; --color-card: #161210; --color-card-2: #1c1714;
+  --color-panel: #120f0d; --color-panel-2: #171310; --color-panel-3: #1c1714;
+  --color-fg: #f4ede3; --color-muted: #b0a597; --color-dim: #786d61; --color-bone: #efe6d8;
+  --color-accent: #ff5b1f; --color-accent-2: #ff8a3d; --color-accent-soft: #ffb38a;
+  --color-accent-glow: #ffd9c2; --color-on-accent: #120804; --color-plan: #ff9a66;
+}
+html[data-palette='cobalt'] {
+  --color-ink: #04060c; --color-ink-2: #070a12; --color-card: #0d111b; --color-card-2: #121725;
+  --color-panel: #0a0e17; --color-panel-2: #0e131e; --color-panel-3: #121826;
+  --color-fg: #eef2fb; --color-muted: #9aa3b8; --color-dim: #636c80; --color-bone: #e8ecf5;
+  --color-accent: #2f6bff; --color-accent-2: #00c2ff; --color-accent-soft: #8fb3ff;
+  --color-accent-glow: #cfe0ff; --color-on-accent: #ffffff; --color-plan: #6f9bff;
+}
+html[data-palette='mint'] {
+  --color-ink: #050807; --color-ink-2: #080c0b; --color-card: #0f1513; --color-card-2: #141b18;
+  --color-panel: #0b100e; --color-panel-2: #0f1513; --color-panel-3: #131a17;
+  --color-fg: #eef5f1; --color-muted: #9cada5; --color-dim: #66766e; --color-bone: #e6efea;
+  --color-accent: #2ee6a6; --color-accent-2: #19b8c9; --color-accent-soft: #94f5d0;
+  --color-accent-glow: #d0fbe9; --color-on-accent: #04120c; --color-plan: #6cdfe0;
+}
+html[data-palette='coral'] {
+  --color-ink: #0a0708; --color-ink-2: #0f0b0c; --color-card: #171113; --color-card-2: #1d1618;
+  --color-panel: #120d0f; --color-panel-2: #171113; --color-panel-3: #1c1517;
+  --color-fg: #f7eeec; --color-muted: #b4a29f; --color-dim: #7a6966; --color-bone: #f1e6e3;
+  --color-accent: #ff5f57; --color-accent-2: #ff8fab; --color-accent-soft: #ffb0a8;
+  --color-accent-glow: #ffdcd8; --color-on-accent: #1a0605; --color-plan: #ff9db0;
+}
+html[data-palette='gold'] {
+  --color-ink: #080706; --color-ink-2: #0d0b09; --color-card: #15120e; --color-card-2: #1b1712;
+  --color-panel: #110f0c; --color-panel-2: #15120e; --color-panel-3: #1a1611;
+  --color-fg: #f3eee4; --color-muted: #ada593; --color-dim: #766e5e; --color-bone: #ede6d6;
+  --color-accent: #e3b34c; --color-accent-2: #f0d58c; --color-accent-soft: #f2d9a0;
+  --color-accent-glow: #fbefd2; --color-on-accent: #1a1205; --color-plan: #e9c46f;
+}
+html[data-palette='mono'] {
+  --color-ink: #000000; --color-ink-2: #070707; --color-card: #0e0e0e; --color-card-2: #141414;
+  --color-panel: #0a0a0a; --color-panel-2: #0e0e0e; --color-panel-3: #131313;
+  --color-fg: #f5f5f5; --color-muted: #a3a3a3; --color-dim: #6b6b6b; --color-bone: #ededed;
+  --color-accent: #f5f5f5; --color-accent-2: #bdbdbd; --color-accent-soft: #d4d4d4;
+  --color-accent-glow: #ffffff; --color-on-accent: #000000; --color-plan: #c9c9c9;
+}
+
 @utility container-x {
   margin-inline: auto;
   width: 100%;
-  max-width: 1440px;
-  padding-inline: 1.25rem;
+  max-width: 1920px;
+  padding-inline: 1rem;
   @media (width >= 48rem) {
-    padding-inline: 2rem;
+    padding-inline: 1.5rem;
   }
   @media (width >= 80rem) {
-    padding-inline: 3rem;
+    padding-inline: 2rem;
   }
 }
 
@@ -113,6 +185,39 @@
 }
 
 /* ------------------------------------------------------------------ */
+/* Campaign brief: answers are highlighted in, Claude's guesses dashed  */
+/* ------------------------------------------------------------------ */
+
+.brief-mark {
+  --mark: color-mix(in oklab, var(--color-accent) 32%, transparent);
+  background-image: linear-gradient(transparent 12%, var(--mark) 12%, var(--mark) 88%, transparent 88%);
+  background-repeat: no-repeat;
+  background-size: 100% 100%;
+  padding-inline: 3px;
+  margin-inline: -3px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.brief-mark[data-fresh] {
+  animation: brief-swipe 0.8s var(--ease-expo);
+}
+.brief-guess {
+  text-decoration: underline dashed var(--color-dim);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 4px;
+}
+@keyframes brief-swipe {
+  from {
+    background-size: 0% 100%;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .brief-mark[data-fresh] {
+    animation: none;
+  }
+}
+
+/* ------------------------------------------------------------------ */
 /* The drawn line                                                       */
 /* ------------------------------------------------------------------ */
 
@@ -125,10 +230,10 @@
     scale 0.5s var(--ease-expo);
 }
 .thread-node[data-on] {
-  background: #c7ccff;
+  background: var(--color-accent-glow);
   box-shadow:
-    0 0 0 3px rgb(99 102 241 / 0.22),
-    0 0 16px 2px rgb(129 140 248 / 0.7);
+    0 0 0 3px color-mix(in oklab, var(--color-accent) 22%, transparent),
+    0 0 16px 2px color-mix(in oklab, var(--color-accent) 70%, transparent);
   scale: 1.15;
 }
 .thread-node-light {
@@ -137,14 +242,22 @@
 }
 .thread-node-light[data-on] {
   background: var(--color-accent);
-  box-shadow: 0 0 0 3px rgb(99 102 241 / 0.18);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-accent) 18%, transparent);
+}
+.thread-node-signal {
+  background: var(--color-accent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--color-on-accent) 45%, transparent);
+}
+.thread-node-signal[data-on] {
+  background: var(--color-on-accent);
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-on-accent) 18%, transparent);
 }
 
 /* When the pen closes its circle around the final button, the button answers. */
 [data-thread='end'][data-on] a {
   box-shadow:
-    0 0 0 6px rgb(99 102 241 / 0.25),
-    0 18px 60px -10px rgb(99 102 241 / 0.8);
+    0 0 0 6px color-mix(in oklab, var(--color-accent) 25%, transparent),
+    0 18px 60px -10px color-mix(in oklab, var(--color-accent) 80%, transparent);
 }
 
 /* A crossed-out phrase goes quiet once the pen has been through it. */

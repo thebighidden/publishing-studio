@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureAgentToken;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -16,6 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
         // The React app signs in with a session cookie (Sanctum SPA auth), so API
         // requests from it get sessions and CSRF protection.
         $middleware->statefulApi();
+
+        // The automation service signs its calls with the studio's agent token instead.
+        $middleware->alias(['agent' => EnsureAgentToken::class]);
 
         // There are no Laravel login pages; send stray browsers to the React one.
         $middleware->redirectGuestsTo(fn () => config('app.frontend_url').'/login');

@@ -5,15 +5,16 @@ import { ease } from '../lib/motion'
 import { cn } from '../lib/cn'
 
 /*
- * Chart colours, validated with the dataviz checker against the panel surface (#0b0b0c):
+ * Chart colours come from the palette tokens in index.css (--color-series, --color-heat-*),
+ * validated with the dataviz checker against the panel surface:
  *   SERIES  — single-series slot: lightness band, chroma floor, ≥3:1 contrast all pass.
- *   HEAT    — one-hue sequential ramp (Tailwind indigo 700→200): monotone, ΔL ≥ 0.06 per
+ *   HEAT    — one-hue sequential ramp (accent, dark → light): monotone, ΔL ≥ 0.06 per
  *             step, darkest step 2.49:1. Zero is not on the ramp; it's an empty cell.
  * Text never takes these colours — values and labels stay in text tokens.
  */
-export const SERIES = '#7c80f7'
-export const SURFACE = '#0b0b0c'
-export const HEAT = ['#4338ca', '#6366f1', '#818cf8', '#a5b4fc', '#c7d2fe']
+export const SERIES = 'var(--color-series)'
+export const SURFACE = 'var(--color-panel)'
+export const HEAT = [1, 2, 3, 4, 5].map((i) => `var(--color-heat-${i})`)
 
 const GRID = 'rgb(255 255 255 / 0.06)'
 const BASELINE = 'rgb(255 255 255 / 0.14)'
@@ -43,7 +44,7 @@ function niceStep(max: number, ticks = 4) {
 function Tip({ left, value, label, keyed = true }: { left: number; value: ReactNode; label: ReactNode; keyed?: boolean }) {
   return (
     <div
-      className="pointer-events-none absolute top-0 z-10 w-[150px] rounded-md border border-line-2 bg-[#141416] px-3 py-2 shadow-xl"
+      className="pointer-events-none absolute top-0 z-10 w-[150px] rounded-md border border-line-2 bg-panel-3 px-3 py-2 shadow-xl"
       style={{ left }}
     >
       <p className="text-[15px] font-semibold tracking-[-0.01em]">{value}</p>
@@ -123,8 +124,7 @@ export function ColumnChart({
               {d.value > 0 && (
                 <motion.path
                   d={`M${x},${plotH} v${-(h - 4)} q0,-4 4,-4 h${barW - 8} q4,0 4,4 v${h - 4} z`}
-                  fill={SERIES}
-                  style={{ transformOrigin: `${x + barW / 2}px ${plotH}px` }}
+                  style={{ fill: SERIES, transformOrigin: `${x + barW / 2}px ${plotH}px` }}
                   initial={{ scaleY: 0 }}
                   animate={{ scaleY: 1, opacity: hover === null || hover === i ? 1 : 0.55 }}
                   transition={{ duration: 0.9, ease, delay: 0.15 + i * 0.05 }}
@@ -244,7 +244,7 @@ export function LineChart({
             <motion.path
               key={`a-${shape}`}
               d={area}
-              fill={SERIES}
+              style={{ fill: SERIES }}
               initial={{ opacity: 0 }}
               animate={{ opacity: 0.1 }}
               transition={{ duration: 0.8, delay: 0.5 }}
@@ -253,7 +253,7 @@ export function LineChart({
               key={`l-${shape}`}
               d={line}
               fill="none"
-              stroke={SERIES}
+              style={{ stroke: SERIES }}
               strokeWidth={2}
               strokeLinejoin="round"
               strokeLinecap="round"
@@ -261,7 +261,7 @@ export function LineChart({
               animate={{ pathLength: 1 }}
               transition={{ duration: 1.3, ease }}
             />
-            <circle cx={x(last)} cy={y(values[last] ?? 0)} r={4} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+            <circle cx={x(last)} cy={y(values[last] ?? 0)} r={4} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
             <text x={x(last) + 9} y={y(values[last] ?? 0)} dy="0.32em" className="fill-fg font-mono text-[11px]">
               {values[last]}
             </text>
@@ -269,7 +269,7 @@ export function LineChart({
             {hover !== null && (
               <g pointerEvents="none">
                 <line x1={x(hover)} x2={x(hover)} y1={PAD.top} y2={y(0)} stroke="rgb(255 255 255 / 0.3)" />
-                <circle cx={x(hover)} cy={y(values[hover])} r={4.5} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+                <circle cx={x(hover)} cy={y(values[hover])} r={4.5} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
               </g>
             )}
           </svg>
@@ -278,7 +278,7 @@ export function LineChart({
       ) : (
         <div data-lenis-prevent className="h-full overflow-auto rounded-md border border-line">
           <table className="w-full text-left text-[12px]">
-            <thead className="sticky top-0 bg-[#111113] font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
+            <thead className="sticky top-0 bg-panel-2 font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
               <tr>
                 <th className="px-3 py-2 font-normal">Date</th>
                 <th className="px-3 py-2 text-right font-normal">{unit}</th>
@@ -372,7 +372,7 @@ export function Heatmap({ grid, mode }: { grid: number[][]; mode: 'chart' | 'tab
     return (
       <div data-lenis-prevent className="max-h-[260px] overflow-auto rounded-md border border-line">
         <table className="w-full text-left text-[12px]">
-          <thead className="sticky top-0 bg-[#111113] font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
+          <thead className="sticky top-0 bg-panel-2 font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
             <tr>
               <th className="px-3 py-2 font-normal">Day</th>
               <th className="px-3 py-2 font-normal">Hour</th>
@@ -496,7 +496,7 @@ export function StatTile({
   const end = pts?.[pts.length - 1]
 
   return (
-    <div className="bg-[#0b0b0c] p-4 md:p-5">
+    <div className="bg-panel p-4 md:p-5">
       <p className="text-[12.5px] text-muted">{label}</p>
       <div className="mt-3 flex items-end justify-between gap-3">
         <p className="text-[28px] font-semibold leading-none tracking-[-0.03em] md:text-[32px]">{value}</p>
@@ -510,7 +510,7 @@ export function StatTile({
               strokeLinejoin="round"
               strokeLinecap="round"
             />
-            <circle cx={end[0]} cy={end[1]} r={3} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+            <circle cx={end[0]} cy={end[1]} r={3} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
           </svg>
         )}
       </div>

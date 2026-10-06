@@ -5,24 +5,45 @@ import { ease } from '../lib/motion'
 import { useDocumentTitle, useRouter } from '../lib/router'
 import { useSession } from '../lib/session'
 import { DataProvider } from './data'
+import Accounts from './pages/Accounts'
 import Analytics from './pages/Analytics'
 import Automations from './pages/Automations'
 import Calendar from './pages/Calendar'
+import Campaigns from './pages/Campaigns'
+import Comments from './pages/Comments'
 import Create from './pages/Create'
+import Inbox from './pages/Inbox'
+import Investigations from './pages/Investigations'
 import Library from './pages/Library'
+import Models from './pages/Models'
 import Overview from './pages/Overview'
+import Phones from './pages/Phones'
+import Publishing from './pages/Publishing'
+import Reposts from './pages/Reposts'
 import Settings from './pages/Settings'
-import { pageLabel, Shell } from './Shell'
+import Studio from './pages/Studio'
+import { pageLabel } from './nav'
+import { Shell } from './Shell'
 import { Splash } from './Splash'
 import { ToastProvider, useToast } from './toast'
 
 const PAGES: Record<string, ComponentType> = {
   '/dashboard': Overview,
+  '/dashboard/inbox': Inbox,
+  '/dashboard/accounts': Accounts,
+  '/dashboard/studio': Studio,
+  '/dashboard/campaigns': Campaigns,
   '/dashboard/create': Create,
   '/dashboard/library': Library,
   '/dashboard/calendar': Calendar,
   '/dashboard/automations': Automations,
   '/dashboard/analytics': Analytics,
+  '/dashboard/models': Models,
+  '/dashboard/phones': Phones,
+  '/dashboard/publishing': Publishing,
+  '/dashboard/reposts': Reposts,
+  '/dashboard/comments': Comments,
+  '/dashboard/investigations': Investigations,
   '/dashboard/settings': Settings,
 }
 

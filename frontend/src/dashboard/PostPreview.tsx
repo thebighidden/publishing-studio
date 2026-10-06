@@ -2,12 +2,12 @@ import type { ReactNode } from 'react'
 import { Bookmark, ChartNoAxesColumn, Globe, Heart, MessageCircle, Music2, Play, Repeat2, Send, Share2, ThumbsUp } from 'lucide-react'
 import { GenArt, type ArtVariant } from '../components/ui/GenArt'
 import { PLATFORMS, type PlatformId } from '../components/ui/PlatformIcon'
-import type { PostFormat, User } from '../lib/api'
+import type { Asset, PostFormat, User } from '../lib/api'
 import { cn } from '../lib/cn'
 import { CHAR_LIMIT } from './data'
 import { Avatar } from './ui'
 
-type Props = { platform: PlatformId; title: string; body: string; format: PostFormat; user: User }
+type Props = { platform: PlatformId; title: string; body: string; format: PostFormat; user: User; assets?: Asset[] }
 
 const handleOf = (user: User) => user.email.split('@')[0].replace(/[^a-z0-9_.]/gi, '').toLowerCase()
 
@@ -29,10 +29,22 @@ function Body({ text, limit, className, clamp }: { text: string; limit: number; 
 }
 
 /**
- * Media is a stand-in: the post's format says what kind of asset it will carry, and the
- * preview shows where it sits. Uploads aren't part of the composer yet.
+ * The post's first file, cropped the way the platform shows it. Without media, a stand-in
+ * shows where it will sit.
  */
-function Media({ format, variant, ratio, className }: { format: PostFormat; variant: ArtVariant; ratio: string; className?: string }) {
+function Media({ format, variant, ratio, className, asset }: { format: PostFormat; variant: ArtVariant; ratio: string; className?: string; asset?: Asset }) {
+  if (asset) {
+    return (
+      <div className={cn('relative w-full overflow-hidden bg-black', ratio, className)}>
+        {asset.poster_url && <img src={asset.poster_url} alt="" className="size-full object-cover" />}
+        {asset.kind === 'video' && (
+          <span className="absolute left-1/2 top-1/2 grid size-11 -translate-x-1/2 -translate-y-1/2 place-items-center rounded-full bg-black/40 text-white backdrop-blur">
+            <Play className="size-4 translate-x-px" fill="currentColor" />
+          </span>
+        )}
+      </div>
+    )
+  }
   return (
     <GenArt variant={variant} className={cn('w-full', ratio, className)}>
       {format === 'video' && (
@@ -47,11 +59,12 @@ function Media({ format, variant, ratio, className }: { format: PostFormat; vari
   )
 }
 
-export function PostPreview({ platform, title, body, format, user }: Props) {
+export function PostPreview({ platform, title, body, format, user, assets = [] }: Props) {
+  const first = assets[0]
   const limit = CHAR_LIMIT[platform]
   const handle = handleOf(user)
   const text = body
-  const hasMedia = format !== 'text'
+  const hasMedia = format !== 'text' || !!first
 
   if (platform === 'x') {
     return (
@@ -63,7 +76,7 @@ export function PostPreview({ platform, title, body, format, user }: Props) {
             <span className="truncate text-dim">@{handle} · now</span>
           </p>
           <Body text={text} limit={limit} className="mt-1 text-[13.5px] leading-snug" />
-          {hasMedia && <Media format={format} variant="sun" ratio="aspect-video" className="mt-3 rounded-2xl border border-line" />}
+          {hasMedia && <Media asset={first} format={format} variant="sun" ratio="aspect-video" className="mt-3 rounded-2xl border border-line" />}
           <div className="mt-3 flex justify-between pr-6 text-dim">
             <MessageCircle className="size-4" strokeWidth={1.5} />
             <Repeat2 className="size-4" strokeWidth={1.5} />
@@ -80,10 +93,10 @@ export function PostPreview({ platform, title, body, format, user }: Props) {
     return (
       <div>
         <div className="flex items-center gap-2.5 p-3">
-          <Avatar user={user} className="size-7 ring-2 ring-[#e87ba4]/60 ring-offset-2 ring-offset-[#0b0b0c]" />
+          <Avatar user={user} className="size-7 ring-2 ring-[#e87ba4]/60 ring-offset-2 ring-offset-panel" />
           <span className="text-[12.5px] font-semibold">{handle}</span>
         </div>
-        <Media format={hasMedia ? format : 'image'} variant={format === 'video' ? 'orb' : 'dune'} ratio="aspect-[4/5]" />
+        <Media asset={first} format={hasMedia ? format : 'image'} variant={format === 'video' ? 'orb' : 'dune'} ratio="aspect-[4/5]" />
         <div className="flex items-center gap-3.5 px-3 pt-3 text-fg">
           <Heart className="size-[18px]" strokeWidth={1.5} />
           <MessageCircle className="size-[18px]" strokeWidth={1.5} />
@@ -102,7 +115,7 @@ export function PostPreview({ platform, title, body, format, user }: Props) {
     return (
       <div className="p-3">
         <div className="relative overflow-hidden rounded-lg">
-          <Media format="video" variant={platform === 'tiktok' ? 'orb' : 'sun'} ratio={platform === 'tiktok' ? 'aspect-[9/14]' : 'aspect-video'} />
+          <Media asset={first} format="video" variant={platform === 'tiktok' ? 'orb' : 'sun'} ratio={platform === 'tiktok' ? 'aspect-[9/14]' : 'aspect-video'} />
           {platform === 'tiktok' && (
             <div className="absolute inset-x-0 bottom-0 bg-linear-to-t from-black/80 to-transparent p-3 pt-10 text-white">
               <p className="text-[12.5px] font-semibold">@{handle}</p>
@@ -131,7 +144,7 @@ export function PostPreview({ platform, title, body, format, user }: Props) {
   if (platform === 'pinterest') {
     return (
       <div className="p-3">
-        <Media format={hasMedia ? format : 'image'} variant="topo" ratio="aspect-[2/3]" className="rounded-2xl" />
+        <Media asset={first} format={hasMedia ? format : 'image'} variant="topo" ratio="aspect-[2/3]" className="rounded-2xl" />
         <p className="mt-3 line-clamp-2 text-[13.5px] font-semibold leading-snug">{title || 'Untitled pin'}</p>
         <Body text={text} limit={limit} clamp={140} className="mt-1 text-[12px] leading-snug text-muted" />
         <p className="mt-3 flex items-center gap-2 text-[11.5px] text-muted">
@@ -155,7 +168,7 @@ export function PostPreview({ platform, title, body, format, user }: Props) {
         </div>
       </div>
       <Body text={text} limit={limit} clamp={platform === 'linkedin' ? 210 : 480} className="px-4 pt-3 text-[13px] leading-[1.5]" />
-      {hasMedia && <Media format={format} variant="product" ratio="aspect-[4/3]" className="mt-3" />}
+      {hasMedia && <Media asset={first} format={format} variant="product" ratio="aspect-[4/3]" className="mt-3" />}
       <div className="mx-4 mt-3 flex justify-between border-t border-line py-2.5 text-[11.5px] text-dim">
         <span className="flex items-center gap-1.5">
           <ThumbsUp className="size-3.5" strokeWidth={1.5} /> Like

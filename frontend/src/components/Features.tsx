@@ -9,8 +9,6 @@ import {
   Workflow,
   type LucideIcon,
 } from 'lucide-react'
-import { useRef } from 'react'
-import { motion, useScroll, useTransform } from 'framer-motion'
 import { LineReveal, Reveal, Serif } from './ui/Reveal'
 import { SectionLabel } from './ui/Section'
 
@@ -25,23 +23,10 @@ const FEATURES: Array<{ title: string; body: string; icon: LucideIcon }> = [
   { title: 'Analytics', body: 'Understand what performs best.', icon: ChartColumn },
 ]
 
-/**
- * The one light section on the page — reads like a printed spec sheet.
- * The paper opens out from a rounded card as it arrives, and folds back in as it leaves.
- */
+/** On paper (see PaperChapter in Home), like a printed spec sheet. */
 export function Features() {
-  const ref = useRef<HTMLElement>(null)
-  const { scrollYProgress: arrive } = useScroll({ target: ref, offset: ['start end', 'start 0.2'] })
-  const { scrollYProgress: leave } = useScroll({ target: ref, offset: ['end 0.8', 'end start'] })
-  const clipPath = useTransform([arrive, leave], ([a, b]: number[]) => {
-    const open = Math.min(a, 1 - b)
-    const side = (1 - open) * 4
-    return `inset(${(1 - a) * 90}px ${side}vw ${b * 90}px ${side}vw round ${(1 - open) * 44}px)`
-  })
-
   return (
-    <section id="features" ref={ref} data-thread-surface className="relative isolate py-28 text-ink md:py-40">
-      <motion.div aria-hidden className="absolute inset-0 -z-10 bg-bone" style={{ clipPath }} />
+    <section id="features" className="relative pb-28 pt-12 md:pb-40 md:pt-20">
       <div className="container-x">
         <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-8">

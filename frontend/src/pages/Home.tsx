@@ -4,7 +4,6 @@ import { ReadyContext } from '../lib/ready'
 import { AIGeneration } from '../components/AIGeneration'
 import { Analytics } from '../components/Analytics'
 import { Automations } from '../components/Automations'
-import { BeforeAfter } from '../components/BeforeAfter'
 import { Calendar } from '../components/Calendar'
 import { ContentAdaptation } from '../components/ContentAdaptation'
 import { ContentTypes } from '../components/ContentTypes'
@@ -20,6 +19,7 @@ import { Security } from '../components/Security'
 import { SocialProof } from '../components/SocialProof'
 import { UseCases } from '../components/UseCases'
 import { Workflow } from '../components/Workflow'
+import { PaperChapter } from '../components/ui/Plate'
 import { Preloader } from '../components/ui/Preloader'
 import { Thread } from '../components/ui/Thread'
 import { isInitialRoute, useDocumentTitle, useEntryDelay } from '../lib/router'
@@ -65,9 +65,10 @@ export default function Home() {
           <ContentAdaptation />
           <Calendar />
           <Automations />
-          <Analytics />
-          <Features />
-          <BeforeAfter />
+          <PaperChapter>
+            <Analytics />
+            <Features />
+          </PaperChapter>
           <UseCases />
           <Security />
           <FinalCTA />

@@ -63,22 +63,20 @@ export function Calendar() {
   return (
     <section id="calendar" className="relative py-28 md:py-40">
       <div className="container-x">
-        <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-8">
-            <SectionLabel index="08">Calendar</SectionLabel>
-            <LineReveal
-              className="mt-10 text-[clamp(2.6rem,6vw,6.25rem)] font-medium leading-[0.92] tracking-[-0.05em]"
-              lines={['See everything.', <Serif data-thread="circle">Plan ahead.</Serif>]}
-            />
-          </div>
-          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-muted lg:col-span-4">
-            Every post, every platform, one week at a glance. Drafts, what’s queued, what went out — and what didn’t.
-          </Reveal>
-        </div>
+        <SectionLabel index="08">Calendar</SectionLabel>
+        <LineReveal
+          className="mt-10 text-[clamp(3rem,8.6vw,9.25rem)] font-medium leading-[0.86] tracking-[-0.06em]"
+          lines={['See everything.', <span className="block text-right">
+            <Serif>Plan ahead.</Serif>
+          </span>]}
+        />
+        <Reveal delay={0.15} className="mt-8 max-w-sm text-[17px] leading-snug text-muted md:-mt-16 lg:-mt-24">
+          Every post, every platform, one week at a glance. Drafts, what’s queued, what went out — and what didn’t.
+        </Reveal>
 
         <div data-thread="rail">
         <Reveal y={40} className="mt-16 md:mt-24">
-          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c] shadow-[0_60px_140px_-40px_rgb(0_0_0_/_0.9)]">
+          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-panel shadow-[0_60px_140px_-40px_rgb(0_0_0_/_0.9)]">
             <DrawnBorder />
             <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 md:px-5">
               <p className="text-[15px] font-medium tracking-[-0.01em]">October 2026</p>

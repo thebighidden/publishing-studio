@@ -31,7 +31,7 @@ class WritingTest extends TestCase
                 return $this->on;
             }
 
-            public function stream(string $model, string $system, string $prompt): Generator
+            public function stream(string $model, string $system, string $prompt, ?string $effort = null): Generator
             {
                 $this->calls[] = compact('model', 'system', 'prompt');
                 yield from $this->chunks;
@@ -39,6 +39,11 @@ class WritingTest extends TestCase
                 if ($this->failWith) {
                     throw new GenerationFailed($this->failWith);
                 }
+            }
+
+            public function json(string $model, string $system, string|array $content, array $schema, ?string $effort = null): array
+            {
+                throw new GenerationFailed('The composer never asks for JSON.');
             }
         };
 
@@ -83,10 +88,14 @@ class WritingTest extends TestCase
         $this->spa()->getJson('/api/ai')
             ->assertOk()
             ->assertJsonPath('enabled', false)
-            ->assertJsonPath('models.0', ['id' => 'claude-opus-5', 'label' => 'Claude Opus 5']);
+            ->assertJsonPath('models.0.id', 'anthropic/claude-opus-5')
+            ->assertJsonPath('models.0.label', 'Claude Opus 5')
+            ->assertJsonPath('models.0.reach', 'Claude API')
+            ->assertJsonPath('models.0.available', false)
+            ->assertJsonPath('models.0.reason', 'No Anthropic API key is set.');
 
         $this->fakeGenerator();
-        $this->spa()->getJson('/api/ai')->assertJsonPath('enabled', true);
+        $this->spa()->getJson('/api/ai')->assertJsonPath('enabled', true)->assertJsonPath('default', 'anthropic/claude-opus-5');
     }
 
     public function test_a_post_streams_in_as_it_is_written(): void

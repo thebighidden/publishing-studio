@@ -36,7 +36,7 @@ export function SubmitButton({
       className={cn(
         'group relative isolate flex h-14 w-full items-center justify-center overflow-hidden rounded-full text-[15px] font-medium tracking-[-0.01em] transition-[background-color,color,box-shadow] duration-500 disabled:cursor-default',
         status === 'success' ? 'bg-ok text-ink' : 'bg-fg text-ink',
-        idle && 'hover:text-white hover:shadow-[0_0_0_5px_rgb(99_102_241_/_0.22),0_14px_44px_-12px_rgb(99_102_241_/_0.7)]',
+        idle && 'hover:text-white hover:shadow-[0_0_0_5px_color-mix(in_oklab,var(--color-accent)_22%,transparent),0_14px_44px_-12px_color-mix(in_oklab,var(--color-accent)_70%,transparent)]',
       )}
     >
       <span

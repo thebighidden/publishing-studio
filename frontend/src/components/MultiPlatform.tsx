@@ -1,7 +1,7 @@
-import { useLayoutEffect, useRef, useState, type ReactNode } from 'react'
-import { motion, useInView } from 'framer-motion'
+import { useCallback, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
+import { useMotionValueEvent, useReducedMotion, useScroll } from 'framer-motion'
 import { Heart, MessageCircle, Music2, Play, Repeat2, Send, ThumbsUp } from 'lucide-react'
-import { ease } from '../lib/motion'
+import { useMediaQuery } from '../lib/useMediaQuery'
 import { GenArt } from './ui/GenArt'
 import { PLATFORMS, PlatformIcon, type PlatformId } from './ui/PlatformIcon'
 import { LineReveal, Reveal, Serif } from './ui/Reveal'
@@ -23,13 +23,58 @@ function offsetWithin(el: HTMLElement, root: HTMLElement) {
   return { x, y, w: el.offsetWidth, h: el.offsetHeight }
 }
 
+const clamp01 = (n: number) => Math.min(1, Math.max(0, n))
+
+/*
+ * On wide screens the six previews start stacked behind the source post and are dealt out to their places
+ * as the source scrolls up the page; each connector draws in as its card lands, then carries a pulse.
+ * Phones and reduced motion get the finished layout.
+ */
 export function MultiPlatform() {
   const wrapRef = useRef<HTMLDivElement>(null)
   const centerRef = useRef<HTMLDivElement>(null)
   const itemRefs = useRef<Array<HTMLDivElement | null>>([])
+  const pathRefs = useRef<Array<SVGPathElement | null>>([])
+  const dotRefs = useRef<Array<SVGGElement | null>>([])
+  const offsets = useRef<Array<{ x: number; y: number }>>([])
   const [paths, setPaths] = useState<string[]>([])
   const [size, setSize] = useState({ w: 0, h: 0 })
-  const inView = useInView(wrapRef, { once: true, margin: '0px 0px -25% 0px' })
+  const wide = useMediaQuery('(min-width: 1024px)')
+  const reduce = useReducedMotion()
+  const deal = wide && !reduce
+
+  const { scrollYProgress } = useScroll({ target: centerRef, offset: ['center 1', 'center 0.32'] })
+
+  const apply = useCallback(
+    (p: number) => {
+      itemRefs.current.forEach((el, i) => {
+        if (!el) return
+        const o = offsets.current[i]
+        const path = pathRefs.current[i]
+        const dot = dotRefs.current[i]
+        if (!deal || !o) {
+          el.style.transform = ''
+          el.style.opacity = ''
+          if (path) path.style.strokeDashoffset = '0'
+          if (dot) dot.style.opacity = reduce ? '0' : '1'
+          return
+        }
+        const left = i < LEFT.length
+        // Middle row first, then the top and bottom; the right-hand side a beat behind the left.
+        const start = [0.07, 0, 0.13][i % 3] + (left ? 0 : 0.06)
+        const t = clamp01((p - start) / 0.62)
+        const e = 1 - Math.pow(1 - t, 3)
+        const k = 1 - e
+        el.style.transform = `translate3d(${o.x * k}px, ${o.y * k}px, 0) scale(${0.45 + 0.55 * e}) rotate(${(left ? 9 : -9) * k}deg)`
+        el.style.opacity = String(clamp01(t * 3.5))
+        if (path) path.style.strokeDashoffset = String(1 - clamp01((t - 0.3) / 0.7))
+        if (dot) dot.style.opacity = t >= 1 ? '1' : '0'
+      })
+    },
+    [deal, reduce],
+  )
+
+  useMotionValueEvent(scrollYProgress, 'change', apply)
 
   useLayoutEffect(() => {
     const wrap = wrapRef.current
@@ -38,11 +83,14 @@ export function MultiPlatform() {
       const center = centerRef.current
       if (!center || getComputedStyle(center).display === 'none') return
       const c = offsetWithin(center, wrap)
+      const cx = c.x + c.w / 2
+      const cy = c.y + c.h / 2
       setSize({ w: wrap.offsetWidth, h: wrap.offsetHeight })
+      const boxes = itemRefs.current.map((el) => (el ? offsetWithin(el, wrap) : null))
+      offsets.current = boxes.map((r) => (r ? { x: cx - (r.x + r.w / 2), y: cy - (r.y + r.h / 2) } : { x: 0, y: 0 }))
       setPaths(
-        itemRefs.current.map((el, i) => {
-          if (!el) return ''
-          const r = offsetWithin(el, wrap)
+        boxes.map((r, i) => {
+          if (!r) return ''
           const left = i < LEFT.length
           const sx = left ? c.x : c.x + c.w
           const sy = c.y + c.h / 2
@@ -52,33 +100,44 @@ export function MultiPlatform() {
           return `M ${sx} ${sy} C ${mx} ${sy}, ${mx} ${ey}, ${ex} ${ey}`
         }),
       )
+      apply(scrollYProgress.get())
     }
     compute()
     const ro = new ResizeObserver(compute)
     ro.observe(wrap)
     return () => ro.disconnect()
-  }, [])
+  }, [apply, scrollYProgress])
 
-  const card = (id: PlatformId, i: number) => (
-    <Reveal key={id} delay={0.3 + (i % 3) * 0.1} y={20}>
-      <div ref={(el) => void (itemRefs.current[i] = el)}>
+  // Paths mount after the first measure; give them their starting state straight away.
+  useLayoutEffect(() => apply(scrollYProgress.get()), [paths, apply, scrollYProgress])
+
+  const card = (id: PlatformId, i: number) => {
+    const inner = (
+      <div ref={(el) => void (itemRefs.current[i] = el)} className="relative will-change-transform">
         <Preview id={id} />
       </div>
-    </Reveal>
-  )
+    )
+    return deal ? (
+      <div key={id}>{inner}</div>
+    ) : (
+      <Reveal key={id} delay={0.3 + (i % 3) * 0.1} y={20}>
+        {inner}
+      </Reveal>
+    )
+  }
 
   return (
     <section id="platforms" className="relative overflow-hidden py-28 md:py-40">
       <div className="container-x">
-        <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
-          <div className="lg:col-span-7">
-            <SectionLabel index="06">Distribution</SectionLabel>
-            <LineReveal
-              className="mt-10 text-[clamp(2.8rem,7vw,7.5rem)] font-medium leading-[0.9] tracking-[-0.05em]"
-              lines={['One post.', <Serif data-thread="circle">Every platform.</Serif>]}
-            />
-          </div>
-          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-muted lg:col-span-4 lg:col-start-9">
+        <div className="flex flex-col items-center text-center">
+          <SectionLabel index="06" thread={false}>
+            Distribution
+          </SectionLabel>
+          <LineReveal
+            className="mt-10 text-[clamp(3rem,9vw,9.5rem)] font-medium leading-[0.86] tracking-[-0.06em]"
+            lines={['One post.', <Serif>Every platform.</Serif>]}
+          />
+          <Reveal delay={0.15} className="mt-8 max-w-md text-[17px] leading-snug text-muted">
             Adapt and publish content across your connected social channels without manually switching between apps.
           </Reveal>
         </div>
@@ -98,19 +157,19 @@ export function MultiPlatform() {
             >
               {paths.map((d, i) => (
                 <g key={i}>
-                  <motion.path
+                  <path
+                    ref={(el) => void (pathRefs.current[i] = el)}
                     d={d}
                     stroke="rgb(255 255 255 / 0.16)"
                     strokeWidth={1}
-                    initial={{ pathLength: 0 }}
-                    animate={{ pathLength: inView ? 1 : 0 }}
-                    transition={{ duration: 1.3, ease, delay: 0.2 + i * 0.07 }}
+                    pathLength={1}
+                    strokeDasharray="1 1"
                   />
-                  {inView && (
+                  <g ref={(el) => void (dotRefs.current[i] = el)} className="transition-opacity duration-500">
                     <circle r={2.5} className="fill-accent-soft">
-                      <animateMotion dur="2.6s" begin={`${1.4 + i * 0.35}s`} repeatCount="indefinite" path={d} />
+                      <animateMotion dur="2.6s" begin={`${0.4 + i * 0.35}s`} repeatCount="indefinite" path={d} />
                     </circle>
-                  )}
+                  </g>
                 </g>
               ))}
             </svg>
@@ -120,8 +179,8 @@ export function MultiPlatform() {
             {LEFT.map((id, i) => card(id, i))}
           </div>
 
-          <Reveal className="order-1 lg:order-2" y={30}>
-            <div ref={centerRef} className="relative rounded-xl border border-white/20 bg-card p-4 shadow-[0_40px_100px_-30px_rgb(99_102_241_/_0.35)]">
+          <Reveal className="relative z-10 order-1 lg:order-2" y={30}>
+            <div ref={centerRef} className="relative rounded-xl border border-white/20 bg-card p-4 shadow-[0_40px_100px_-30px_color-mix(in_oklab,var(--color-accent)_35%,transparent)]">
               <div className="flex items-center justify-between">
                 <span className="rounded-full bg-fg px-2.5 py-0.5 font-mono text-[10px] uppercase tracking-[0.12em] text-ink">
                   Source

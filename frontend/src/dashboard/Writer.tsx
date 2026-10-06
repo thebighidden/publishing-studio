@@ -6,6 +6,7 @@ import { apiStream, ApiError, type AiOptions, type PostFormat } from '../lib/api
 import { ease } from '../lib/motion'
 import { cn } from '../lib/cn'
 import { useApi } from './data'
+import { ModelPicker } from './studio/parts'
 import { useUser } from './Shell'
 import { FieldError, Menu, Skeleton } from './ui'
 
@@ -66,7 +67,7 @@ export function Writer({ body, onBody, format, platforms, onWriting }: Props) {
   const writing = job !== null
   const rewrite = (job ? job.before : body).trim() !== ''
   const models = options.models
-  const activeModel = models.find((m) => m.id === model) ?? models[0]
+  const activeModel = models.find((m) => m.id === model && m.available) ?? models.find((m) => m.id === options.default) ?? models.find((m) => m.available)
   const blocked = !options.enabled
     ? 'AI writing isn’t switched on yet. Write the post yourself for now.'
     : !user.email_verified
@@ -144,7 +145,7 @@ export function Writer({ body, onBody, format, platforms, onWriting }: Props) {
   return (
     <section
       className={cn(
-        'relative overflow-hidden rounded-xl border bg-[#0b0b0c] transition-colors duration-500',
+        'relative overflow-hidden rounded-xl border bg-panel transition-colors duration-500',
         writing ? 'border-accent/40' : 'border-line',
       )}
     >
@@ -174,13 +175,8 @@ export function Writer({ body, onBody, format, platforms, onWriting }: Props) {
               onSelect: () => setTone(t),
             }))}
           />
-          {activeModel && (
-            <Picker
-              label="Model"
-              value={activeModel.label}
-              disabled={writing || !!blocked || models.length < 2}
-              items={models.map((m) => ({ label: m.label, selected: m.id === activeModel.id, onSelect: () => setModel(m.id) }))}
-            />
+          {activeModel && !blocked && (
+            <ModelPicker models={models} kind="text" value={activeModel.id} onChange={setModel} align="right" className={cn('w-[210px]', writing && 'pointer-events-none opacity-60')} />
           )}
         </div>
       </header>
@@ -193,7 +189,7 @@ export function Writer({ body, onBody, format, platforms, onWriting }: Props) {
           }}
           className={cn(
             'flex items-end gap-2 rounded-lg border border-line-2 bg-white/[0.02] py-1.5 pl-3 pr-1.5 transition-[border-color,box-shadow] duration-300',
-            'focus-within:border-accent-soft/60 focus-within:shadow-[0_0_0_3px_rgb(99_102_241_/_0.18)]',
+            'focus-within:border-accent-soft/60 focus-within:shadow-[0_0_0_3px_color-mix(in_oklab,var(--color-accent)_18%,transparent)]',
             blocked && 'opacity-60',
           )}
         >
@@ -225,7 +221,7 @@ export function Writer({ body, onBody, format, platforms, onWriting }: Props) {
               type="submit"
               disabled={!!blocked}
               aria-label={rewrite ? 'Rewrite the post' : 'Write the post'}
-              className="grid size-8 shrink-0 place-items-center rounded-md bg-fg text-ink transition-[background-color,box-shadow] duration-300 hover:bg-white hover:shadow-[0_0_0_4px_rgb(99_102_241_/_0.2)] disabled:cursor-not-allowed disabled:bg-fg/50"
+              className="grid size-8 shrink-0 place-items-center rounded-md bg-fg text-ink transition-[background-color,box-shadow] duration-300 hover:bg-white hover:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_20%,transparent)] disabled:cursor-not-allowed disabled:bg-fg/50"
             >
               <ArrowUp className="size-4" strokeWidth={2} />
             </button>

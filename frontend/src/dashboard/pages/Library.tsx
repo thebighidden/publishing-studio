@@ -12,6 +12,7 @@ import {
   fmtRelative,
   PLATFORM_ORDER,
   postState,
+  STATE,
   setPostStatus,
   titleOf,
   useDebounced,
@@ -20,13 +21,15 @@ import {
 } from '../data'
 import { useOverview } from '../Shell'
 import { useToast } from '../toast'
-import { Btn, EmptyState, Menu, Modal, PageHeader, Platforms, Skeleton, StateBadge, Stagger, inputClass } from '../ui'
+import { MediaLibrary } from '../media/Media'
+import { Btn, EmptyState, Menu, Modal, PageHeader, Platforms, Segmented, Skeleton, StateBadge, Stagger, inputClass } from '../ui'
 
 const TABS: Array<{ value: PostStatus | ''; label: string }> = [
   { value: '', label: 'All' },
   { value: 'draft', label: 'Drafts' },
   { value: 'scheduled', label: 'Scheduled' },
   { value: 'published', label: 'Published' },
+  { value: 'failed', label: 'Failed' },
 ]
 
 const FORMAT_LABEL = { text: 'Text', image: 'Image', video: 'Video' }
@@ -38,6 +41,7 @@ export default function Library() {
   const invalidate = useInvalidate()
   const toast = useToast()
 
+  const [view, setView] = useState<'posts' | 'media'>(() => (new URLSearchParams(search).get('view') === 'media' ? 'media' : 'posts'))
   const [status, setStatus] = useState<PostStatus | ''>(() => (new URLSearchParams(search).get('status') as PostStatus) ?? '')
   const [platform, setPlatform] = useState<PlatformId | ''>('')
   const [q, setQ] = useState('')
@@ -73,7 +77,7 @@ export default function Library() {
   }
 
   const counts: Record<string, number | undefined> = overview
-    ? { '': overview.counts.total, draft: overview.counts.draft, scheduled: overview.counts.scheduled, published: overview.counts.published }
+    ? { '': overview.counts.total, draft: overview.counts.draft, scheduled: overview.counts.scheduled, published: overview.counts.published, failed: overview.counts.failed }
     : {}
 
   const act = async (fn: () => Promise<unknown>, message: string) => {
@@ -91,20 +95,41 @@ export default function Library() {
   return (
     <div>
       <PageHeader
-        index="03"
         eyebrow="Library"
         title={
           <>
             Everything you’ve <Serif>made.</Serif>
           </>
         }
-        sub="Every draft, scheduled post and published piece, in one place."
+        sub={view === 'media' ? 'Photos and videos: uploaded, generated, and ready to use in posts.' : 'Every draft, scheduled post and published piece, in one place.'}
         actions={
-          <Btn variant="primary" icon={Plus} onClick={() => navigate('/dashboard/create')}>
-            New post
-          </Btn>
+          <>
+            <Segmented
+              id="library-view"
+              label="Show"
+              options={[
+                { value: 'posts', label: 'Posts' },
+                { value: 'media', label: 'Media' },
+              ]}
+              value={view}
+              onChange={(v) => {
+                setView(v)
+                navigate(`/dashboard/library${v === 'media' ? '?view=media' : ''}`, { replace: true })
+              }}
+            />
+            <Btn variant="primary" icon={Plus} onClick={() => navigate('/dashboard/create')}>
+              New post
+            </Btn>
+          </>
         }
       />
+
+      {view === 'media' ? (
+        <Stagger i={0} className="mt-10">
+          <MediaLibrary />
+        </Stagger>
+      ) : (
+        <>
 
       {/* Filters: one row, above everything they scope. */}
       <Stagger i={0} className="mt-10 flex flex-wrap items-center gap-2">
@@ -157,7 +182,7 @@ export default function Library() {
       </Stagger>
 
       <Stagger i={1} className="mt-4">
-        <section className={cn('rounded-xl border border-line bg-[#0b0b0c] transition-opacity duration-300', loading && posts && 'opacity-60')}>
+        <section className={cn('rounded-xl border border-line bg-panel transition-opacity duration-300', loading && posts && 'opacity-60')}>
           <div className="hidden grid-cols-[minmax(0,1fr)_110px_70px_170px_40px] gap-4 border-b border-line px-5 py-2.5 font-mono text-[10px] uppercase tracking-[0.14em] text-dim md:grid">
             <span>Post</span>
             <span>Platforms</span>
@@ -217,7 +242,7 @@ export default function Library() {
                     >
                       <button type="button" onClick={() => navigate(`/dashboard/create?post=${p.id}`)} className="min-w-0 text-left">
                         <span className="flex items-center gap-2.5">
-                          <span className={cn('size-1.5 shrink-0 rounded-full', { draft: 'bg-draft', scheduled: 'bg-plan', due: 'bg-warn', published: 'bg-ok' }[state])} />
+                          <span className={cn('size-1.5 shrink-0 rounded-full', STATE[state].dot)} />
                           <span className="truncate text-[13.5px] text-fg transition-colors group-hover:text-white">{titleOf(p)}</span>
                         </span>
                         <span className="mt-0.5 block truncate pl-4 text-[12px] text-dim">{p.body}</span>
@@ -272,6 +297,9 @@ export default function Library() {
             Load more
           </Btn>
         </div>
+      )}
+
+        </>
       )}
 
       <Modal open={!!deleting} onClose={() => setDeleting(null)} title="Delete this post?">

@@ -258,7 +258,7 @@ function PaperPlane() {
             />
           </mask>
         </defs>
-        <path d={FLIGHT} fill="none" stroke="rgb(165 180 252 / 0.6)" strokeWidth={1.25} strokeDasharray="3 5" mask={`url(#${mask})`} />
+        <path d={FLIGHT} fill="none" stroke="color-mix(in oklab, var(--color-accent-soft) 60%, transparent)" strokeWidth={1.25} strokeDasharray="3 5" mask={`url(#${mask})`} />
         <motion.circle
           cx="10"
           cy="104"

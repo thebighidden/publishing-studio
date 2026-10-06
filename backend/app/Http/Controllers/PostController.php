@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use App\Enums\PostStatus;
 use App\Http\Requests\SavePostRequest;
 use App\Http\Resources\PostResource;
+use App\Models\ActionLog;
 use App\Models\Post;
 use App\Models\User;
+use App\Services\Campaigns\Voice;
 use App\Services\PostQueue;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -30,6 +32,7 @@ class PostController extends Controller
         $filters = $request->validate([
             'status' => ['nullable', Rule::enum(PostStatus::class)],
             'platform' => ['nullable', 'string'],
+            'account' => ['nullable', 'integer'],
             'q' => ['nullable', 'string', 'max:100'],
             'from' => ['nullable', 'date'],
             'to' => ['nullable', 'date', 'after:from'],
@@ -37,9 +40,10 @@ class PostController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:500'],
         ]);
 
-        $posts = $request->user()->posts()
+        $posts = $request->user()->posts()->with(['account', 'assets', 'campaign'])
             ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
             ->when($filters['platform'] ?? null, fn ($q, $platform) => $q->whereJsonContains('platforms', $platform))
+            ->when($filters['account'] ?? null, fn ($q, $account) => $q->where('account_id', $account))
             ->when($filters['q'] ?? null, fn ($q, $text) => $q->where(fn ($q) => $q
                 ->where('title', 'like', "%{$text}%")
                 ->orWhere('body', 'like', "%{$text}%")))
@@ -60,6 +64,7 @@ class PostController extends Controller
         $post = $request->user()->posts()->make();
         $this->fill($post, $request);
         $post->save();
+        $this->afterSave($post, $request);
 
         return PostResource::make($post)->response()->setStatusCode(201);
     }
@@ -77,6 +82,7 @@ class PostController extends Controller
 
         $this->fill($post, $request);
         $post->save();
+        $this->afterSave($post, $request);
 
         return PostResource::make($post);
     }
@@ -97,7 +103,12 @@ class PostController extends Controller
         $copy = $post->replicate(['scheduled_at', 'published_at']);
         $copy->status = PostStatus::Draft;
         $copy->title = $post->title ? str($post->title)->limit(113, '')->append(' (copy)')->value() : null;
+        $copy->approved_at = null;
+        $copy->approved_by = null;
+        $copy->post_url = null;
+        $copy->error = null;
         $copy->save();
+        $copy->syncAssets($post->assets->pluck('id')->all());
 
         return PostResource::make($copy)->response()->setStatusCode(201);
     }
@@ -107,7 +118,10 @@ class PostController extends Controller
      */
     private function fill(Post $post, SavePostRequest $request): void
     {
-        $post->fill($request->safe()->only(['title', 'body', 'format', 'platforms', 'status']));
+        $post->fill($request->safe()->only(['title', 'body', 'format', 'placement', 'platforms', 'status', 'account_id']));
+        if ($account = $request->account()) {
+            $post->platforms = [$account->platform->value];
+        }
         $post->scheduled_at = $request->input('scheduled_at') ? Carbon::parse($request->input('scheduled_at')) : null;
 
         if ($request->boolean('queue')) {
@@ -128,5 +142,33 @@ class PostController extends Controller
         $post->published_at = $post->status === PostStatus::Published
             ? ($post->published_at ?? now())
             : null;
+
+        // Written or edited by a person and set to go out: that is the approval.
+        if ($post->status === PostStatus::Draft) {
+            $post->approved_at = $post->approved_by = null;
+        } elseif ($post->isDirty(['body', 'status', 'scheduled_at']) || ! $post->approved_at) {
+            $post->approved_at = now();
+            $post->approved_by = $request->user()->id;
+        }
+    }
+
+    private function afterSave(Post $post, SavePostRequest $request): void
+    {
+        if ($request->has('asset_ids')) {
+            $post->syncAssets(array_map('intval', (array) $request->input('asset_ids')));
+        }
+        $post->load(['account', 'assets']);
+
+        if ($post->status === PostStatus::Published && ($post->wasChanged('status') || $post->wasRecentlyCreated)) {
+            app(Voice::class)->published($post);
+        }
+
+        if ($post->wasChanged('status') || $post->wasRecentlyCreated) {
+            ActionLog::record($request->user(), 'you', "post.{$post->status->value}", $post, match ($post->status) {
+                PostStatus::Scheduled => 'Scheduled “'.str($post->title ?: $post->body)->limit(48).'” for '.$post->scheduled_at?->toIso8601ZuluString().'.',
+                PostStatus::Published => 'Marked “'.str($post->title ?: $post->body)->limit(48).'” as published.',
+                default => 'Saved “'.str($post->title ?: $post->body)->limit(48).'” as a draft.',
+            }, 'approved');
+        }
     }
 }

@@ -1,5 +1,5 @@
-import { useRef } from 'react'
-import { motion, useScroll, useTransform } from 'framer-motion'
+import { useEffect, useRef } from 'react'
+import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { ArrowUp } from 'lucide-react'
 import { Logo } from './ui/Logo'
 
@@ -56,14 +56,89 @@ export function Footer() {
         </div>
       </div>
 
-      <div aria-hidden className="pointer-events-none select-none overflow-hidden">
-        <motion.p
-          style={{ y: wordY }}
-          className="-mb-[0.2em] text-center text-[27vw] font-semibold leading-[0.8] tracking-[-0.07em] text-fg/[0.06]"
-        >
-          FlowAI
-        </motion.p>
-      </div>
+      <Wordmark y={wordY} />
     </footer>
+  )
+}
+
+const WORD = 'FlowAI'
+
+/**
+ * The closing wordmark. With a mouse, each letter swells toward the heaviest weight of the variable font
+ * as the pointer comes near, and thins out as it leaves, so the word ripples under the cursor.
+ */
+function Wordmark({ y }: { y: MotionValue<string> }) {
+  const ref = useRef<HTMLParagraphElement>(null)
+  const letters = useRef<Array<HTMLSpanElement | null>>([])
+  const reduce = useReducedMotion()
+
+  useEffect(() => {
+    const el = ref.current
+    if (!el || reduce || !window.matchMedia('(pointer: fine)').matches) return
+    let raf = 0
+    let px = 0
+    let py = 0
+    let near = false
+
+    const paint = () => {
+      raf = 0
+      const reach = window.innerWidth * 0.15
+      letters.current.forEach((l) => {
+        if (!l) return
+        const r = l.getBoundingClientRect()
+        const d = Math.hypot(px - (r.left + r.width / 2), py - (r.top + r.height / 2))
+        // At rest (no pointer on the page) the letters go back to exactly how the word is styled.
+        const k = Math.exp(-(d * d) / (2 * reach * reach))
+        l.style.fontVariationSettings = near ? `'wght' ${Math.round(200 + 700 * k)}` : ''
+        l.style.color = near ? `color-mix(in oklab, var(--color-fg) ${(5 + 13 * k).toFixed(1)}%, transparent)` : ''
+      })
+    }
+    const onMove = (e: PointerEvent) => {
+      px = e.clientX
+      py = e.clientY
+      near = true
+      if (!raf) raf = requestAnimationFrame(paint)
+    }
+    const onLeave = () => {
+      near = false
+      if (!raf) raf = requestAnimationFrame(paint)
+    }
+
+    const io = new IntersectionObserver(([entry]) => {
+      if (entry.isIntersecting) {
+        window.addEventListener('pointermove', onMove, { passive: true })
+      } else {
+        window.removeEventListener('pointermove', onMove)
+        onLeave()
+      }
+    })
+    io.observe(el)
+    document.addEventListener('pointerleave', onLeave)
+    return () => {
+      io.disconnect()
+      cancelAnimationFrame(raf)
+      window.removeEventListener('pointermove', onMove)
+      document.removeEventListener('pointerleave', onLeave)
+    }
+  }, [reduce])
+
+  return (
+    <div aria-hidden className="pointer-events-none select-none overflow-hidden">
+      <motion.p
+        ref={ref}
+        style={{ y }}
+        className="-mb-[0.2em] text-center text-[27vw] font-semibold leading-[0.8] tracking-[-0.07em] text-fg/[0.06]"
+      >
+        {[...WORD].map((c, i) => (
+          <span
+            key={i}
+            ref={(node) => void (letters.current[i] = node)}
+            className="inline-block transition-[font-variation-settings,color] duration-700 ease-expo"
+          >
+            {c}
+          </span>
+        ))}
+      </motion.p>
+    </div>
   )
 }

@@ -12,9 +12,9 @@ import { Caption, SectionLabel } from './ui/Section'
 /* Illustrative data — seeded, so it's the same on every load           */
 /* ------------------------------------------------------------------ */
 
-/** Chart series colour; validated against the #0b0b0c surface (L band, chroma, ≥3:1). */
-const SERIES = '#7c80f7'
-const SURFACE = '#0b0b0c'
+/** Chart series colour; a palette token, validated against the panel surface (L band, chroma, ≥3:1). */
+const SERIES = 'var(--color-series)'
+const SURFACE = 'var(--color-panel)'
 
 function mulberry32(seed: number) {
   return () => {
@@ -110,17 +110,19 @@ export function Analytics() {
   }, [range])
 
   return (
-    <section id="analytics" className="relative py-28 md:py-40">
+    <section id="analytics" className="relative pb-12 pt-28 md:pb-20 md:pt-40">
       <div className="container-x">
         <div className="grid gap-8 lg:grid-cols-12 lg:items-end">
           <div className="lg:col-span-8">
-            <SectionLabel index="10">Analytics</SectionLabel>
+            <SectionLabel index="10" light>
+              Analytics
+            </SectionLabel>
             <LineReveal
               className="mt-10 text-[clamp(2.6rem,6vw,6.25rem)] font-medium leading-[0.92] tracking-[-0.05em]"
               lines={['Create smarter', <Serif data-thread="underline" data-loop="">content.</Serif>]}
             />
           </div>
-          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-muted lg:col-span-4">
+          <Reveal delay={0.15} className="max-w-sm text-[17px] leading-snug text-ink/60 lg:col-span-4">
             See what landed, where, and why — then feed it back into the next thing you make.
           </Reveal>
         </div>
@@ -172,7 +174,7 @@ export function Analytics() {
             <TopContent rows={view.top} range={range} />
           </AppFrame>
         </Reveal>
-        <Caption fig="10" className="mt-8">
+        <Caption fig="10" light className="mt-8">
           Illustrative numbers, not customer statistics. Switch the range — everything on the board follows.
         </Caption>
         </div>
@@ -193,7 +195,7 @@ function StatTile({ label, value, delta, trend, range }: { label: string; value:
   const last = pts[pts.length - 1]
 
   return (
-    <div className="bg-[#0b0b0c] p-4 md:p-5">
+    <div className="bg-panel p-4 md:p-5">
       <p className="text-[12.5px] text-muted">{label}</p>
       <div className="mt-3 flex items-end justify-between gap-3">
         <p className="text-[28px] font-semibold leading-none tracking-[-0.03em] md:text-[32px]">{value}</p>
@@ -206,7 +208,7 @@ function StatTile({ label, value, delta, trend, range }: { label: string; value:
             strokeLinejoin="round"
             strokeLinecap="round"
           />
-          <circle cx={last[0]} cy={last[1]} r={3} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+          <circle cx={last[0]} cy={last[1]} r={3} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
         </svg>
       </div>
       <p className={cn('mt-3 flex items-center gap-1 text-[11.5px]', up ? 'text-ok' : 'text-fail')}>
@@ -329,7 +331,7 @@ function ReachChart({ days, range }: { days: Day[]; range: Range }) {
               <motion.path
                 key={`a-${range}`}
                 d={area}
-                fill={SERIES}
+                style={{ fill: SERIES }}
                 initial={{ opacity: 0 }}
                 animate={{ opacity: inView ? 0.1 : 0 }}
                 transition={{ duration: 1, delay: 0.5 }}
@@ -338,7 +340,7 @@ function ReachChart({ days, range }: { days: Day[]; range: Range }) {
                 key={`l-${range}`}
                 d={line}
                 fill="none"
-                stroke={SERIES}
+                style={{ stroke: SERIES }}
                 strokeWidth={2}
                 strokeLinejoin="round"
                 strokeLinecap="round"
@@ -348,7 +350,7 @@ function ReachChart({ days, range }: { days: Day[]; range: Range }) {
               />
 
               {/* Direct label on the latest value */}
-              <circle cx={x(lastI)} cy={y(values[lastI])} r={4} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+              <circle cx={x(lastI)} cy={y(values[lastI])} r={4} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
               <text x={x(lastI) + 10} y={y(values[lastI])} dy="0.32em" className="fill-fg font-mono text-[11px]">
                 {compact(values[lastI])}
               </text>
@@ -356,14 +358,14 @@ function ReachChart({ days, range }: { days: Day[]; range: Range }) {
               {hi !== null && (
                 <g pointerEvents="none">
                   <line x1={x(hi)} x2={x(hi)} y1={PAD.top} y2={y(0)} stroke="rgb(255 255 255 / 0.3)" />
-                  <circle cx={x(hi)} cy={y(values[hi])} r={4.5} fill={SERIES} stroke={SURFACE} strokeWidth={2} />
+                  <circle cx={x(hi)} cy={y(values[hi])} r={4.5} style={{ fill: SERIES, stroke: SURFACE }} strokeWidth={2} />
                 </g>
               )}
             </svg>
 
             {hi !== null && (
               <div
-                className="pointer-events-none absolute top-0 w-[150px] rounded-md border border-line-2 bg-[#141416] px-3 py-2 shadow-xl"
+                className="pointer-events-none absolute top-0 w-[150px] rounded-md border border-line-2 bg-panel-3 px-3 py-2 shadow-xl"
                 style={{ left: tipLeft }}
               >
                 <p className="text-[15px] font-semibold tracking-[-0.01em]">{grouped(values[hi])}</p>
@@ -377,7 +379,7 @@ function ReachChart({ days, range }: { days: Day[]; range: Range }) {
         ) : (
           <div data-lenis-prevent className="h-full overflow-auto rounded-md border border-line">
             <table className="w-full text-left text-[12px]">
-              <thead className="sticky top-0 bg-[#111113] font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
+              <thead className="sticky top-0 bg-panel-2 font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
                 <tr>
                   <th className="px-3 py-2 font-normal">Date</th>
                   <th className="px-3 py-2 text-right font-normal">Reach</th>

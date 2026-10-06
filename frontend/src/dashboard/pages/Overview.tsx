@@ -31,7 +31,6 @@ export default function Overview() {
   return (
     <div>
       <PageHeader
-        index="01"
         eyebrow="Overview"
         title={
           <>
@@ -251,7 +250,7 @@ function Board({ overview }: { overview: OverviewData }) {
 
 function Tile({ label, value, foot }: { label: string; value: number; foot: string }) {
   return (
-    <div className="bg-[#0b0b0c] p-4 md:p-5">
+    <div className="bg-panel p-4 md:p-5">
       <p className="text-[12.5px] text-muted">{label}</p>
       <CountUp value={value} className="mt-3 block text-[28px] font-semibold leading-none tracking-[-0.03em] md:text-[32px]" />
       <p className="mt-3 truncate text-[11.5px] text-dim">{foot}</p>
@@ -329,7 +328,7 @@ function GettingStarted({ overview }: { overview: OverviewData }) {
   ]
 
   return (
-    <div className="relative overflow-hidden rounded-xl border border-line bg-[#0b0b0c] p-6 md:p-10">
+    <div className="relative overflow-hidden rounded-xl border border-line bg-panel p-6 md:p-10">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-0 opacity-60"
@@ -418,7 +417,7 @@ function Loading() {
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-px overflow-hidden rounded-xl border border-line bg-line lg:grid-cols-4">
         {[0, 1, 2, 3].map((i) => (
-          <div key={i} className="bg-[#0b0b0c] p-5">
+          <div key={i} className="bg-panel p-5">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="mt-4 h-8 w-14" />
             <Skeleton className="mt-4 h-3 w-28" />

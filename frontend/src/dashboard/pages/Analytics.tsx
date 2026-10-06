@@ -42,7 +42,6 @@ export default function Analytics() {
   return (
     <div>
       <PageHeader
-        index="06"
         eyebrow="Analytics"
         title={
           <>

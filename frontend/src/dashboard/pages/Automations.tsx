@@ -73,7 +73,6 @@ export default function Automations() {
   return (
     <div className="pb-16">
       <PageHeader
-        index="05"
         eyebrow="Automations"
         title={
           <>
@@ -173,7 +172,7 @@ export default function Automations() {
                           u.post ? 'border-line-2 bg-card' : 'border-dashed border-white/10',
                         )}
                       >
-                        <span className={cn('grid size-[22px] shrink-0 place-items-center rounded-full', u.post ? 'bg-accent text-white' : 'border border-line-2 text-dim')}>
+                        <span className={cn('grid size-[22px] shrink-0 place-items-center rounded-full', u.post ? 'bg-accent text-on-accent' : 'border border-line-2 text-dim')}>
                           <CalendarClock className="size-3" strokeWidth={2} />
                         </span>
                         <span className="w-[86px] shrink-0">
@@ -236,7 +235,7 @@ export default function Automations() {
             exit={{ y: 80, opacity: 0 }}
             transition={{ duration: 0.45, ease }}
           >
-            <div className="flex items-center gap-3 rounded-xl border border-line-2 bg-[#121214] py-2 pl-4 pr-2 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]">
+            <div className="flex items-center gap-3 rounded-xl border border-line-2 bg-panel-3 py-2 pl-4 pr-2 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]">
               <span className="size-1.5 animate-pulse rounded-full bg-warn" />
               <p className="text-[12.5px] text-muted">Unsaved changes</p>
               <Btn size="sm" variant="subtle" onClick={() => setEdited(null)}>

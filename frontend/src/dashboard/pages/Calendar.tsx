@@ -138,7 +138,6 @@ export default function Calendar() {
   return (
     <div>
       <PageHeader
-        index="04"
         eyebrow="Calendar"
         title={
           <>
@@ -154,7 +153,7 @@ export default function Calendar() {
       />
 
       <Stagger i={0} className="mt-10">
-        <section className="overflow-hidden rounded-xl border border-line bg-[#0b0b0c]">
+        <section className="overflow-hidden rounded-xl border border-line bg-panel">
           <div className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 md:px-5">
             <AnimatePresence mode="popLayout" initial={false}>
               <motion.p

@@ -95,7 +95,7 @@ const sizes = {
 
 const variants = {
   primary:
-    'bg-fg text-ink hover:bg-white hover:shadow-[0_0_0_5px_rgb(99_102_241_/_0.22),0_10px_40px_-10px_rgb(99_102_241_/_0.6)]',
+    'bg-fg text-ink hover:bg-white hover:shadow-[0_0_0_5px_color-mix(in_oklab,var(--color-accent)_22%,transparent),0_10px_40px_-10px_color-mix(in_oklab,var(--color-accent)_60%,transparent)]',
   ghost: 'text-fg border border-line-2 hover:border-white/30 hover:bg-white/[0.04]',
 }
 

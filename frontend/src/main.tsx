@@ -7,6 +7,9 @@ import '@fontsource/instrument-serif/400-italic.css'
 import 'lenis/dist/lenis.css'
 import './index.css'
 import App from './App'
+import { applySavedPalette } from './components/ui/PalettePicker'
+
+applySavedPalette()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

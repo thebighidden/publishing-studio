@@ -5,6 +5,7 @@ namespace App\Providers;
 use App\Models\User;
 use App\Services\Ai\ClaudeTextGenerator;
 use App\Services\Ai\TextGenerator;
+use App\Services\Ai\UsageMeter;
 use Illuminate\Auth\Notifications\ResetPassword;
 use Illuminate\Auth\Notifications\VerifyEmail;
 use Illuminate\Cache\RateLimiting\Limit;
@@ -21,7 +22,8 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(TextGenerator::class, fn () => new ClaudeTextGenerator(config('services.anthropic.key')));
+        $this->app->singleton(UsageMeter::class);
+        $this->app->bind(TextGenerator::class, fn ($app) => new ClaudeTextGenerator(config('services.anthropic.key'), $app->make(UsageMeter::class)));
     }
 
     /**
@@ -38,6 +40,12 @@ class AppServiceProvider extends ServiceProvider
         RateLimiter::for('ai', fn (Request $request) => [
             Limit::perMinute(10)->by('minute:'.$request->user()->id),
             Limit::perDay(200)->by('day:'.$request->user()->id),
+        ]);
+
+        // The campaign intake: one request per answer, so faster than writing, but still capped per day.
+        RateLimiter::for('intake', fn (Request $request) => [
+            Limit::perMinute(20)->by('intake-minute:'.$request->user()->id),
+            Limit::perDay(300)->by('intake-day:'.$request->user()->id),
         ]);
 
         // The reset form is a page in the React app, not a Laravel view.

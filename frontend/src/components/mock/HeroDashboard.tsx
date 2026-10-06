@@ -158,7 +158,7 @@ export function HeroDashboard({ phase, run }: { phase: number; run: boolean }) {
           <span
             className={cn(
               'ml-auto rounded-md px-3 py-1.5 text-[12px] font-medium transition-colors duration-500',
-              phase >= 3 ? 'bg-accent text-white' : 'border border-line-2 text-fg',
+              phase >= 3 ? 'bg-accent text-on-accent' : 'border border-line-2 text-fg',
             )}
           >
             {phase >= 4 ? 'Published' : phase >= 3 ? 'Scheduled' : 'Schedule'}

@@ -95,7 +95,7 @@ export function ContentAdaptation() {
             </div>
           </div>
 
-          <Reveal delay={0.1} className="relative flex flex-col overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c]">
+          <Reveal delay={0.1} className="relative flex flex-col overflow-hidden rounded-xl border border-white/[0.05] bg-panel">
             <DrawnBorder delay={0.2} />
             <div role="tablist" aria-label="Destination" className="flex border-b border-line">
               {VARIANTS.map((it, i) => (

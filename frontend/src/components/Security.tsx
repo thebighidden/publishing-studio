@@ -33,10 +33,10 @@ export function Security() {
     <section id="security" className="relative py-28 md:py-40">
       <div className="container-x grid gap-16 lg:grid-cols-12 lg:gap-10">
         <div className="lg:col-span-5">
-          <SectionLabel index="14">Control</SectionLabel>
+          <SectionLabel index="13">Control</SectionLabel>
           <LineReveal
             className="mt-10 text-[clamp(2.6rem,6vw,6.25rem)] font-medium leading-[0.92] tracking-[-0.05em]"
-            lines={['Your content.', <Serif data-thread="circle" data-exit="down">Your control.</Serif>]}
+            lines={['Your content.', <Serif>Your control.</Serif>]}
           />
           <div data-thread="rail" data-side="left">
           <ul className="mt-12 space-y-3.5">
@@ -56,7 +56,7 @@ export function Security() {
         </div>
 
         <Reveal y={40} className="lg:col-span-6 lg:col-start-7">
-          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c]">
+          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-panel">
             <DrawnBorder />
             <div className="flex items-center justify-between border-b border-line px-5 py-4">
               <p className="text-[13.5px] font-medium">Connected accounts</p>

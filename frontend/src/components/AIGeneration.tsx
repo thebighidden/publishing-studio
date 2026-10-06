@@ -79,7 +79,7 @@ export function AIGeneration() {
             <SectionLabel index="03">Models</SectionLabel>
             <LineReveal
               className="mt-10 text-[clamp(2.4rem,4.1vw,4.4rem)] font-medium leading-[0.95] tracking-[-0.045em]"
-              lines={['Choose the model.', <Serif data-thread="circle" data-exit="down">Define the outcome.</Serif>]}
+              lines={['Choose the model.', <Serif>Define the outcome.</Serif>]}
             />
             <Reveal delay={0.15} className="mt-8 max-w-sm text-[17px] leading-snug text-muted">
               Give creators control over the AI models powering their content.
@@ -101,7 +101,7 @@ export function AIGeneration() {
         </div>
 
         <Reveal className="lg:col-span-7" y={40}>
-          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-[#0b0b0c] shadow-[0_60px_120px_-40px_rgb(0_0_0_/_0.9)]">
+          <div className="relative overflow-hidden rounded-xl border border-white/[0.05] bg-panel shadow-[0_60px_120px_-40px_rgb(0_0_0_/_0.9)]">
             <DrawnBorder />
             <div className="flex items-center justify-between border-b border-line px-5 py-3.5">
               <p className="text-[13.5px] font-medium">Generation settings</p>

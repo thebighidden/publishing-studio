@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 're
 import { motion } from 'framer-motion'
 import { Check, ChevronDown, Clapperboard, Image, KeyRound, LoaderCircle, Trash2, Type } from 'lucide-react'
 import { siGithub, siGoogle } from 'simple-icons'
+import { PalettePicker } from '../../components/ui/PalettePicker'
 import { PLATFORMS, PlatformIcon, type PlatformId } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
 import { api, ApiError, type PostFormat, type Provider, type User } from '../../lib/api'
@@ -32,14 +33,13 @@ export default function Settings() {
   return (
     <div>
       <PageHeader
-        index="07"
         eyebrow="Settings"
         title={
           <>
             Your <Serif>account.</Serif>
           </>
         }
-        sub="Who you are, how you sign in, and the defaults every new post starts from."
+        sub="Who you are, how you sign in, the defaults every new post starts from, and how the studio looks."
       />
       <div className="mt-10 space-y-4">
         <Stagger i={0}>
@@ -49,12 +49,15 @@ export default function Settings() {
           <Defaults />
         </Stagger>
         <Stagger i={2}>
-          <Password />
+          <Appearance />
         </Stagger>
         <Stagger i={3}>
-          <SignInMethods />
+          <Password />
         </Stagger>
         <Stagger i={4}>
+          <SignInMethods />
+        </Stagger>
+        <Stagger i={5}>
           <DangerZone />
         </Stagger>
       </div>
@@ -65,7 +68,7 @@ export default function Settings() {
 /** Left: what the section is. Right: the form. */
 function Section({ title, body, children, footer, danger }: { title: string; body: ReactNode; children: ReactNode; footer?: ReactNode; danger?: boolean }) {
   return (
-    <section className={cn('grid grid-cols-1 gap-5 rounded-xl border bg-[#0b0b0c] p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] md:gap-10 md:p-6', danger ? 'border-fail/25' : 'border-line')}>
+    <section className={cn('grid grid-cols-1 gap-5 rounded-xl border bg-panel p-5 md:grid-cols-[minmax(0,1fr)_minmax(0,1.6fr)] md:gap-10 md:p-6', danger ? 'border-fail/25' : 'border-line')}>
       <div>
         <h2 className="text-[14px] font-medium">{title}</h2>
         <p className="mt-1 text-[12.5px] leading-snug text-dim">{body}</p>
@@ -163,7 +166,7 @@ function Profile() {
             <span className="relative block">
               <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className={cn(inputClass, 'appearance-none pr-9')}>
                 {zones.map((z) => (
-                  <option key={z} value={z} className="bg-[#121214]">
+                  <option key={z} value={z} className="bg-panel-3">
                     {z.replace(/_/g, ' ')}
                   </option>
                 ))}
@@ -267,6 +270,16 @@ function Defaults() {
           )
         })}
       </div>
+    </Section>
+  )
+}
+
+/* ------------------------------------------------------------------ */
+
+function Appearance() {
+  return (
+    <Section title="Appearance" body="The palette for the studio and the site. It changes right away and is remembered on this device.">
+      <PalettePicker />
     </Section>
   )
 }

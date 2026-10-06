@@ -4,7 +4,9 @@ namespace App\Http\Requests;
 
 use App\Enums\Platform;
 use App\Enums\PostFormat;
+use App\Services\Ai\Models\ModelRegistry;
 use App\Services\Ai\PostPrompt;
+use App\Services\Campaigns\Voice;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
@@ -24,7 +26,8 @@ class WritePostRequest extends FormRequest
             'platforms' => ['required', 'array', 'min:1'],
             'platforms.*' => ['distinct', Rule::enum(Platform::class)],
             'tone' => ['nullable', Rule::in(PostPrompt::TONES)],
-            'model' => ['nullable', Rule::in(array_keys(config('ai.models')))],
+            'account_id' => ['nullable', Rule::exists('accounts', 'id')->where('user_id', $this->user()->id)],
+            'model' => ['nullable', Rule::in(collect(app(ModelRegistry::class)->all('text'))->pluck('id')->all())],
         ];
     }
 
@@ -48,11 +51,13 @@ class WritePostRequest extends FormRequest
             platforms: array_values(array_map(fn (string $p) => Platform::from($p), $this->input('platforms'))),
             tone: $this->input('tone'),
             draft: $this->input('draft'),
+            voice: $this->filled('account_id') ? app(Voice::class)->context($this->user()->accounts()->findOrFail($this->input('account_id'))) : null,
         );
     }
 
+    /** A registry id, e.g. anthropic/claude-opus-5. */
     public function model(): string
     {
-        return $this->input('model') ?? array_key_first(config('ai.models'));
+        return $this->input('model') ?? app(ModelRegistry::class)->defaultText();
     }
 }

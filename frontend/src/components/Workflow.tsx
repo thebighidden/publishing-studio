@@ -5,6 +5,7 @@ import { cn } from '../lib/cn'
 import { useMediaQuery } from '../lib/useMediaQuery'
 import { Caret, Field } from './mock/Mock'
 import { GenArt } from './ui/GenArt'
+import { Plate } from './ui/Plate'
 import { PLATFORMS, PlatformIcon, type PlatformId } from './ui/PlatformIcon'
 import { LineReveal, Reveal, Serif } from './ui/Reveal'
 import { SectionLabel } from './ui/Section'
@@ -28,12 +29,12 @@ export function Workflow() {
 function Heading({ thread }: { thread: boolean }) {
   return (
     <>
-      <SectionLabel index="05" thread={thread}>
+      <SectionLabel index="05" thread={thread} signal>
         Workflow
       </SectionLabel>
       <LineReveal
-        className="mt-10 text-[clamp(2.6rem,5.2vw,6rem)] font-medium leading-[0.92] tracking-[-0.05em]"
-        lines={['Build once.', 'Let automation', <Serif data-thread={thread ? 'circle' : undefined}>do the rest.</Serif>]}
+        className="mt-10 text-[clamp(2.8rem,5.6vw,6.5rem)] font-medium leading-[0.9] tracking-[-0.055em]"
+        lines={['Build once.', 'Let automation', <Serif>do the rest.</Serif>]}
       />
     </>
   )
@@ -106,9 +107,11 @@ function PinnedWorkflow() {
       ref={sectionRef}
       data-thread="rail"
       data-side="left"
-      className="relative"
+      data-thread-surface="signal"
+      className="relative isolate text-on-accent"
       style={{ height: `calc(100vh + ${dist}px)` }}
     >
+      <Plate target={sectionRef} className="bg-accent" />
       <div className="sticky top-0 flex h-screen flex-col justify-center overflow-hidden">
         <motion.div
           ref={trackRef}
@@ -120,19 +123,19 @@ function PinnedWorkflow() {
               <Heading thread={false} />
             </div>
             <Reveal delay={0.2} className="flex items-end justify-between gap-6">
-              <p className="max-w-[30ch] text-[17px] leading-snug text-muted">
+              <p className="max-w-[30ch] text-[17px] leading-snug text-on-accent/75">
                 Six steps you’d normally do by hand. Set them up once — then they run on their own.
               </p>
-              <span className="flex shrink-0 items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-dim">
+              <span className="flex shrink-0 items-center gap-2 font-mono text-[11px] uppercase tracking-[0.16em] text-on-accent/60">
                 Scroll <ArrowRight className="size-3.5" />
               </span>
             </Reveal>
           </div>
 
           <div ref={stepsRef} className="relative flex gap-5">
-            <div className="absolute inset-x-0 top-[7px] h-px bg-line-2" />
+            <div className="absolute inset-x-0 top-[7px] h-px bg-on-accent/25" />
             <motion.div
-              className="absolute inset-x-0 top-[7px] h-px origin-left bg-fg"
+              className="absolute inset-x-0 top-[7px] h-px origin-left bg-on-accent"
               style={{ scaleX: fill }}
             />
             {STEPS.map((s, i) => (
@@ -143,12 +146,12 @@ function PinnedWorkflow() {
           </div>
         </motion.div>
 
-        <div className="container-x absolute inset-x-0 bottom-8 flex items-center gap-6 font-mono text-[11px] text-dim">
-          <span className="tabular-nums text-fg">
-            {String(Math.max(1, active)).padStart(2, '0')} <span className="text-dim">/ 06</span>
+        <div className="container-x absolute inset-x-0 bottom-8 flex items-center gap-6 font-mono text-[11px] text-on-accent/65">
+          <span className="tabular-nums text-on-accent">
+            {String(Math.max(1, active)).padStart(2, '0')} <span className="text-on-accent/65">/ 06</span>
           </span>
-          <div className="h-px flex-1 bg-line">
-            <motion.div className="h-px origin-left bg-muted" style={{ scaleX: barScale }} />
+          <div className="h-px flex-1 bg-on-accent/20">
+            <motion.div className="h-px origin-left bg-on-accent" style={{ scaleX: barScale }} />
           </div>
           <span className="uppercase tracking-[0.16em]">{STEPS[Math.max(0, active - 1)].title}</span>
         </div>
@@ -164,15 +167,15 @@ function StepCard({ index, step, on }: { index: number; step: (typeof STEPS)[num
       <span
         className={cn(
           'absolute left-0 top-0 grid size-[15px] place-items-center rounded-full border transition-colors duration-500',
-          on ? 'border-fg bg-fg' : 'border-line-2 bg-ink',
+          on ? 'border-on-accent bg-on-accent' : 'border-on-accent/40 bg-accent',
         )}
       >
-        <span className={cn('size-[5px] rounded-full transition-colors duration-500', on ? 'bg-ink' : 'bg-line-2')} />
+        <span className={cn('size-[5px] rounded-full transition-colors duration-500', on ? 'bg-accent' : 'bg-on-accent/40')} />
       </span>
       <div
         className={cn(
-          'flex h-[min(430px,56vh)] flex-col rounded-xl border bg-ink-2 p-6 transition-[border-color,opacity] duration-700',
-          on ? 'border-line-2 opacity-100' : 'border-line opacity-50',
+          'flex h-[min(430px,56vh)] flex-col rounded-xl border border-white/10 bg-ink-2 p-6 text-fg shadow-[0_40px_80px_-30px_rgb(0_0_0_/_0.55)] transition-[opacity,translate] duration-700 ease-expo',
+          on ? 'opacity-100' : 'translate-y-3 opacity-60',
         )}
       >
         <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-dim">Step {String(index + 1).padStart(2, '0')}</p>
@@ -191,18 +194,25 @@ function StepCard({ index, step, on }: { index: number; step: (typeof STEPS)[num
 /* ------------------------------------------------------------------ */
 
 function StackedWorkflow() {
+  const sectionRef = useRef<HTMLElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const { scrollYProgress } = useScroll({ target: listRef, offset: ['start 0.7', 'end 0.7'] })
 
   return (
-    <section id="workflow" className="relative py-28 md:py-36">
+    <section
+      id="workflow"
+      ref={sectionRef}
+      data-thread-surface="signal"
+      className="relative isolate py-28 text-on-accent md:py-36"
+    >
+      <Plate target={sectionRef} className="bg-accent" />
       <div className="container-x">
         <Heading thread />
         <div ref={listRef} data-thread="rail" data-side-sm="right" className="relative mt-16 pl-8">
-          <div aria-hidden className="absolute bottom-0 left-[7px] top-0 w-px bg-line-2" />
+          <div aria-hidden className="absolute bottom-0 left-[7px] top-0 w-px bg-on-accent/25" />
           <motion.div
             aria-hidden
-            className="absolute bottom-0 left-[7px] top-0 w-px origin-top bg-fg"
+            className="absolute bottom-0 left-[7px] top-0 w-px origin-top bg-on-accent"
             style={{ scaleY: scrollYProgress }}
           />
           <ol className="space-y-6">
@@ -210,10 +220,10 @@ function StackedWorkflow() {
             const UI = s.ui
             return (
               <Reveal as="li" key={s.title} className="relative">
-                <span className="absolute -left-8 top-6 grid size-[15px] place-items-center rounded-full border border-fg bg-ink">
-                  <span className="size-[5px] rounded-full bg-fg" />
+                <span className="absolute -left-8 top-6 grid size-[15px] place-items-center rounded-full border border-on-accent bg-on-accent">
+                  <span className="size-[5px] rounded-full bg-accent" />
                 </span>
-                <div className="rounded-xl border border-line-2 bg-ink-2 p-6">
+                <div className="rounded-xl border border-white/10 bg-ink-2 p-6 text-fg shadow-[0_30px_60px_-30px_rgb(0_0_0_/_0.55)]">
                   <p className="font-mono text-[11px] uppercase tracking-[0.16em] text-dim">Step {String(i + 1).padStart(2, '0')}</p>
                   <h3 className="mt-3 text-3xl font-medium tracking-[-0.04em]">{s.title}</h3>
                   <p className="mt-2 text-[15px] text-muted">{s.body}</p>

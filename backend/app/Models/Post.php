@@ -9,8 +9,10 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
-#[Fillable(['title', 'body', 'format', 'platforms', 'status', 'scheduled_at', 'published_at'])]
+#[Fillable(['title', 'body', 'format', 'placement', 'platforms', 'status', 'account_id', 'campaign_id', 'variant_id', 'scheduled_at', 'published_at', 'approved_at', 'approved_by', 'post_url', 'error'])]
 class Post extends Model
 {
     /** @use HasFactory<PostFactory> */
@@ -29,6 +31,7 @@ class Post extends Model
             'platforms' => 'array',
             'scheduled_at' => 'datetime',
             'published_at' => 'datetime',
+            'approved_at' => 'datetime',
         ];
     }
 
@@ -38,5 +41,70 @@ class Post extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    /**
+     * @return BelongsTo<Account, $this>
+     */
+    public function account(): BelongsTo
+    {
+        return $this->belongsTo(Account::class);
+    }
+
+    /**
+     * @return BelongsTo<Campaign, $this>
+     */
+    public function campaign(): BelongsTo
+    {
+        return $this->belongsTo(Campaign::class);
+    }
+
+    /**
+     * @return BelongsTo<ItemVariant, $this>
+     */
+    public function variant(): BelongsTo
+    {
+        return $this->belongsTo(ItemVariant::class, 'variant_id');
+    }
+
+    /**
+     * The media the post carries, in order.
+     *
+     * @return BelongsToMany<Asset, $this>
+     */
+    public function assets(): BelongsToMany
+    {
+        return $this->belongsToMany(Asset::class, 'post_assets')->withPivot('position')->orderByPivot('position');
+    }
+
+    /**
+     * @return BelongsTo<User, $this>
+     */
+    public function approver(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'approved_by');
+    }
+
+    /**
+     * Every attempt to publish this post from a phone, oldest first.
+     *
+     * @return HasMany<PublishingRun, $this>
+     */
+    public function runs(): HasMany
+    {
+        return $this->hasMany(PublishingRun::class);
+    }
+
+    public function isApproved(): bool
+    {
+        return $this->approved_at !== null;
+    }
+
+    /**
+     * @param  list<int>  $assetIds
+     */
+    public function syncAssets(array $assetIds): void
+    {
+        $this->assets()->sync(collect($assetIds)->values()->mapWithKeys(fn (int $id, int $i) => [$id => ['position' => $i]])->all());
     }
 }
