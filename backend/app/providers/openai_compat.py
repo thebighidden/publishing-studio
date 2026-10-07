@@ -141,7 +141,15 @@ class OpenAICompatImage(ImageProvider):
         self.model = model
         self.options = options or {}
 
-    def generate(self, prompt: str, *, aspect: str = "1:1", seed: int | None = None) -> MediaResult:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        aspect: str = "1:1",
+        seed: int | None = None,
+        image: bytes | None = None,
+        image_mime: str = "image/png",
+    ) -> MediaResult:
         w, h = aspect_size(aspect)
         body: dict[str, Any] = {
             "model": self.model,

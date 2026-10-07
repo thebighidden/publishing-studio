@@ -6,11 +6,12 @@ export function Tag({ kind, children }) {
 
 export function Stat({ label, value, kind }) {
   return (
-    <div className="panel stat">
-      <b className={kind ? `tag ${kind}` : undefined} style={kind ? { background: "none", border: "none", padding: 0, fontSize: 26 } : undefined}>
-        {value}
-      </b>
-      <span>{label}</span>
+    <div className={`panel stat ${kind ? `stat-${kind}` : ""}`}>
+      <div className="stat-top">
+        <span>{label}</span>
+        <span className="stat-mark" />
+      </div>
+      <strong>{value}</strong>
     </div>
   );
 }
@@ -47,7 +48,7 @@ export function Modal({ title, onClose, children, footer }) {
       <div className="modal">
         <div className="spread" style={{ marginBottom: 16 }}>
           <h1>{title}</h1>
-          <button className="ghost" onClick={onClose}>Close</button>
+          <button className="ghost modal-close" onClick={onClose} aria-label="Close">×</button>
         </div>
         {children}
         {footer && <div className="row end" style={{ marginTop: 18 }}>{footer}</div>}

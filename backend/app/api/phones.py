@@ -10,7 +10,7 @@ from ..devices.base import DeviceError, UiNode
 from ..devices.targets import known_targets
 from ..db import get_session
 from ..models import Account, Phone, utcnow
-from .schemas import AppIn, PhoneIn, PhoneUpdate, TapIn, TypeIn, WirelessConnect
+from .schemas import AppIn, KeyIn, PhoneIn, PhoneUpdate, SwipeIn, TapIn, TypeIn, WirelessConnect
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
 
@@ -187,3 +187,47 @@ def app_start(phone_id: str, body: AppIn, session: Session = Depends(get_session
     except DeviceError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"started": body.package}
+
+
+@router.post("/{phone_id}/app-stop")
+def app_stop(phone_id: str, body: AppIn, session: Session = Depends(get_session)) -> dict:
+    phone = _free(_get(session, phone_id))
+    try:
+        devices.driver_for(phone).app_stop(body.package)
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"stopped": body.package}
+
+
+@router.post("/{phone_id}/key")
+def key(phone_id: str, body: KeyIn, session: Session = Depends(get_session)) -> dict:
+    phone = _free(_get(session, phone_id))
+    aliases = {
+        "BACK": "KEYCODE_BACK",
+        "HOME": "KEYCODE_HOME",
+        "RECENTS": "KEYCODE_APP_SWITCH",
+        "ENTER": "KEYCODE_ENTER",
+        "DELETE": "KEYCODE_DEL",
+        "TAB": "KEYCODE_TAB",
+    }
+    keycode = aliases.get(body.keycode.upper(), body.keycode.upper())
+    if keycode not in set(aliases.values()):
+        raise HTTPException(422, "unsupported key")
+    try:
+        devices.driver_for(phone).key(keycode)
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"keycode": keycode}
+
+
+@router.post("/{phone_id}/swipe")
+def swipe(phone_id: str, body: SwipeIn, session: Session = Depends(get_session)) -> dict:
+    phone = _free(_get(session, phone_id))
+    direction = body.direction.lower()
+    if direction not in {"up", "down", "left", "right"}:
+        raise HTTPException(422, "direction must be up, down, left or right")
+    try:
+        devices.driver_for(phone).swipe(direction, body.distance)
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"direction": direction, "distance": body.distance}

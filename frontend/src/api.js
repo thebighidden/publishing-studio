@@ -11,6 +11,7 @@ export class ApiError extends Error {
 async function request(method, path, body) {
   const res = await fetch(path, {
     method,
+    credentials: "same-origin",
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -21,9 +22,27 @@ async function request(method, path, body) {
     } catch {
       payload = { detail: await res.text() };
     }
+    if (res.status === 401 && !path.startsWith("/api/auth/")) {
+      window.dispatchEvent(new CustomEvent("studio-auth-required"));
+    }
     throw new ApiError(res.status, payload.detail || res.statusText, payload);
   }
   if (res.status === 204) return null;
+  return res.json();
+}
+
+async function formRequest(path, body) {
+  const res = await fetch(path, { method: "POST", credentials: "same-origin", body });
+  if (!res.ok) {
+    let payload = {};
+    try {
+      payload = await res.json();
+    } catch {
+      payload = { detail: await res.text() };
+    }
+    if (res.status === 401) window.dispatchEvent(new CustomEvent("studio-auth-required"));
+    throw new ApiError(res.status, payload.detail || res.statusText, payload);
+  }
   return res.json();
 }
 
@@ -33,6 +52,7 @@ export const api = {
   patch: (p, b) => request("PATCH", p, b),
   put: (p, b) => request("PUT", p, b),
   del: (p) => request("DELETE", p),
+  form: (p, b) => formRequest(p, b),
 };
 
 /** Load once, expose a reload. `deps` re-fetches when they change. */
@@ -66,13 +86,18 @@ export function useResource(path, deps = []) {
  * The live run feed. Steps arrive while a phone is being driven, which is the
  * whole point of watching a publish rather than waiting for a result.
  */
-export function useEvents(onEvent) {
+export function useEvents(onEvent, enabled = true) {
   const [events, setEvents] = useState([]);
   const [connected, setConnected] = useState(false);
   const handler = useRef(onEvent);
   handler.current = onEvent;
 
   useEffect(() => {
+    if (!enabled) {
+      setConnected(false);
+      setEvents([]);
+      return undefined;
+    }
     let socket;
     let retry;
     let closed = false;
@@ -100,7 +125,7 @@ export function useEvents(onEvent) {
       clearTimeout(retry);
       socket?.close();
     };
-  }, []);
+  }, [enabled]);
 
   return { events, connected };
 }

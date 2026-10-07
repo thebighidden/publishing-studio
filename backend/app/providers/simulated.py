@@ -180,7 +180,15 @@ class SimulatedImage(ImageProvider):
     def __init__(self, options: Optional[dict[str, Any]] = None):
         self.options = options or {}
 
-    def generate(self, prompt: str, *, aspect: str = "1:1", seed: int | None = None) -> MediaResult:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        aspect: str = "1:1",
+        seed: int | None = None,
+        image: bytes | None = None,
+        image_mime: str = "image/png",
+    ) -> MediaResult:
         w, h = aspect_size(aspect)
         rng = random.Random(seed if seed is not None else _seed_of(prompt))
         img = _gradient(w, h, rng)

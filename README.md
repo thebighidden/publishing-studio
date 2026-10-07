@@ -47,9 +47,33 @@ npm run dev
 The frontend proxies `/api`, `/media` and `/evidence` to the backend; override the target
 with `STUDIO_API`.
 
-**No setup is required to try it.** With no phone and no API keys, the studio falls back to
-a built-in simulator device and offline generators, and labels every asset `simulated`.
-`backend/scripts/demo.py` drives a full campaign end to end.
+On the first visit, create the local administrator account. No phone or API key is required to
+try the publishing flow: the studio falls back to a built-in simulator and offline generators,
+and labels every asset `simulated`. `backend/scripts/demo.py` drives a full campaign end to end;
+set `STUDIO_USERNAME` and `STUDIO_PASSWORD` in that process so it can authenticate.
+
+### Creative Lab: Gemini images and Veo video
+
+**Creative Lab** is a standalone image/video test surface inspired by Aluna's production flow.
+Upload a product reference, describe the new scene, and the studio adds a strict identity direction:
+change the world around the product without changing its shape, materials, colors, packaging, logos,
+labels, or visible text. For video, the studio can first art-direct a clean opening frame with the
+selected image model and then animate that frame with the selected video model.
+
+The lab works immediately with the offline image renderer and real local MP4 encoder. To use the
+Google path, open **Settings → AI providers → Add provider**:
+
+1. Add **Google Gemini + Veo (Aluna workflow)** as the default image provider. A Gemini API key is
+   sufficient, or use a Google Cloud project with Application Default Credentials.
+2. Add it again as the default video provider. Veo uses Vertex AI, so enter the Google Cloud project,
+   Veo location (normally `us-central1`), and a `gs://...` output path. Authenticate with Application
+   Default Credentials or paste a service-account JSON document into the encrypted credential field.
+3. Use **Test** on each provider before generating. Stored credentials are encrypted and are never
+   returned to the browser.
+
+The defaults mirror Aluna: `gemini-3.1-flash-image` for images and
+`veo-3.1-fast-generate-001` for video. Both model fields remain editable as Google releases newer
+versions.
 
 ### Connecting a real device
 
@@ -77,10 +101,10 @@ backend/app/
   devices/      adb.py · simulator.py · targets.py   device drivers, named-target resolution
   publishing/   runner.py · scheduler.py · recipes/  the publish loop and per-platform steps
   agents/       pipeline.py · specs.py               campaign generation, platform rules
-  providers/    higgsfield · openai_compat · ...     pluggable image/video/text models
+  providers/    google_genai · higgsfield · ...      pluggable image/video/text models
   api/          FastAPI routers
 frontend/src/
-  pages/        Dashboard · Campaigns · CampaignDetail · Calendar · Runs · RunDetail · Settings
+  pages/        Dashboard · CreativeLab · Campaigns · Calendar · Runs · Settings
   ui.jsx        shared primitives (Tag, Modal, Banner, Empty)
   styles.css    all styling — plain CSS, no framework
 ```
@@ -107,10 +131,12 @@ These look like friction and are actually the product:
 
 ---
 
-## Authentication — current state
+## Authentication and secrets
 
-**There is no user authentication on the studio itself.** It binds to localhost and assumes a
-single trusted operator. Anything beyond local single-user use needs auth added first.
+The first browser visit creates a local administrator account. Passwords are stored as salted
+PBKDF2-SHA256 hashes; authenticated sessions use encrypted, HttpOnly, SameSite cookies and expire
+after seven days. The Security settings screen can rotate the password and invalidate other
+sessions. All API, media and evidence routes are protected after setup.
 
 For the social accounts, the design is deliberate and worth preserving:
 
@@ -122,6 +148,9 @@ For the social accounts, the design is deliberate and worth preserving:
   `STUDIO_DATA_DIR/secret.key`, which is gitignored. Keys are masked on read and never sent
   back to the browser.
 
+The interface also includes persistent light/dark themes, an authenticated live notification
+center, and a device console for viewing and controlling simulator or ADB-connected phones.
+
 ---
 
 ## Status
@@ -129,6 +158,23 @@ For the social accounts, the design is deliberate and worth preserving:
 Built as a hackathon MVP. The full loop is verified end to end against the built-in simulator:
 campaign → plan → gate 6A → generated posts → gate 6B → schedule → publish → `confirmed`, plus
 the `failed` path rolling a post back for retry and releasing the device booking.
+
+The **device layer is separately verified against real hardware**. From `backend/`:
+
+```bash
+python -m scripts.device_check emulator-5554
+```
+
+This exercises all ten `DeviceDriver` capabilities through the studio's own `AdbDriver` — so a
+pass means the code the publisher depends on works on that device, not that raw `adb` does.
+Currently 9/9 on an Android 15 emulator.
+
+> One hard-won rule it encodes: **never sleep and then type.** `adb shell input text` delivers
+> to whatever holds focus, and with nothing focused the keystrokes are discarded *silently*.
+> That publishes an empty caption, which still grows the profile grid — so it survives to
+> verification and surfaces only as a baffling token mismatch. `RunContext.type_into()` waits
+> for an observed focused field, types, then reads the text back. The simulator models this
+> too, so it can actually fail on a lost caption.
 
 **Known gap:** the named targets in `publishing/recipes/` were written against the simulator.
 Real Instagram and X builds use different resource IDs, so the first run on a physical device

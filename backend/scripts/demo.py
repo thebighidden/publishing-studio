@@ -7,12 +7,15 @@ Run the server first, then:  python scripts/demo.py [base_url]
 from __future__ import annotations
 
 import json
+import os
 import sys
 import time
 import urllib.error
 import urllib.request
+from http.cookiejar import CookieJar
 
 BASE = sys.argv[1] if len(sys.argv) > 1 else "http://127.0.0.1:8000"
+OPENER = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
 
 def call(method: str, path: str, body: dict | None = None, *, allow: tuple[int, ...] = ()):
@@ -21,7 +24,7 @@ def call(method: str, path: str, body: dict | None = None, *, allow: tuple[int, 
         BASE + path, data=data, method=method, headers={"Content-Type": "application/json"}
     )
     try:
-        with urllib.request.urlopen(req, timeout=180) as resp:
+        with OPENER.open(req, timeout=180) as resp:
             raw = resp.read()
             return json.loads(raw) if raw else None
     except urllib.error.HTTPError as exc:
@@ -36,6 +39,8 @@ def step(n: str) -> None:
 
 
 def main() -> None:
+    authenticate()
+
     step("accounts")
     accounts = call("GET", "/api/accounts")
     for a in accounts:
@@ -106,6 +111,21 @@ def main() -> None:
 
     step("summary")
     print(json.dumps(call("GET", "/api/overview"), indent=1))
+
+
+def authenticate() -> None:
+    status = call("GET", "/api/auth/status")
+    if status.get("authenticated"):
+        return
+    username = os.environ.get("STUDIO_USERNAME", "")
+    password = os.environ.get("STUDIO_PASSWORD", "")
+    if not username or not password:
+        action = "create the administrator in the browser first, then " if not status.get("configured") else ""
+        raise SystemExit(
+            f"authentication required: {action}set STUDIO_USERNAME and STUDIO_PASSWORD for this demo process"
+        )
+    endpoint = "/api/auth/login" if status.get("configured") else "/api/auth/setup"
+    call("POST", endpoint, {"username": username, "password": password})
 
 
 TERMINAL = {"published", "failed", "uncertain"}

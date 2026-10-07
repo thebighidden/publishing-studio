@@ -6,9 +6,10 @@ const TABS = [
   ["phones", "Phones"],
   ["accounts", "Accounts"],
   ["providers", "AI providers"],
+  ["security", "Security"],
 ];
 
-export default function Settings() {
+export default function Settings({ user }) {
   const [tab, setTab] = useState("phones");
 
   return (
@@ -17,8 +18,7 @@ export default function Settings() {
         <div>
           <h1>Settings</h1>
           <p>
-            The three things the studio needs before it can publish: a phone it can drive, an
-            account signed in on that phone, and a model that can make the media.
+            Manage devices, social accounts, content providers, API keys, and access to the studio.
           </p>
         </div>
       </div>
@@ -34,6 +34,7 @@ export default function Settings() {
       {tab === "phones" && <Phones />}
       {tab === "accounts" && <Accounts />}
       {tab === "providers" && <Providers />}
+      {tab === "security" && <Security user={user} />}
     </>
   );
 }
@@ -134,7 +135,7 @@ function Phones() {
 }
 
 function PhoneRow({ phone, onChanged }) {
-  const [shot, setShot] = useState(null);
+  const [controlling, setControlling] = useState(false);
   const { busy, error, run } = useAction();
 
   const refresh = () =>
@@ -142,8 +143,6 @@ function PhoneRow({ phone, onChanged }) {
       await api.post(`/api/phones/${phone.id}/refresh`, {});
       onChanged();
     });
-
-  const screenshot = () => setShot(`/api/phones/${phone.id}/screenshot?t=${Date.now()}`);
 
   const drop = () =>
     run(async () => {
@@ -172,19 +171,123 @@ function PhoneRow({ phone, onChanged }) {
           <Tag kind={phone.online ? "ok" : "bad"}>{phone.online ? "online" : "offline"}</Tag>
           {phone.busy_run_id && <Tag kind="warn">busy</Tag>}
           <button onClick={refresh} disabled={busy}>Refresh</button>
-          <button onClick={screenshot}>Screen</button>
+          <button onClick={() => setControlling(true)} disabled={!phone.online}>Control</button>
           <button className="danger ghost" onClick={drop} disabled={busy}>Remove</button>
         </div>
       </div>
       <Banner error={error} />
       {phone.last_error && <div className="issue small">{phone.last_error}</div>}
       {phone.last_seen && <div className="small muted">last seen {ago(phone.last_seen)}</div>}
-      {shot && (
-        <Modal title={`${phone.name} — live screen`} onClose={() => setShot(null)}>
-          <img className="screen" src={shot} alt="phone screen" />
-        </Modal>
-      )}
+      {controlling && <PhoneControl phone={phone} onClose={() => setControlling(false)} />}
     </div>
+  );
+}
+
+function PhoneControl({ phone, onClose }) {
+  const [stamp, setStamp] = useState(Date.now());
+  const [state, setState] = useState(null);
+  const [text, setText] = useState("");
+  const [target, setTarget] = useState("");
+  const [live, setLive] = useState(false);
+  const { data: targets } = useResource("/api/phones/targets");
+  const { busy, error, run } = useAction();
+
+  const refresh = async () => {
+    try {
+      setState(await api.get(`/api/phones/${phone.id}/state`));
+      setStamp(Date.now());
+    } catch {
+      setStamp(Date.now());
+    }
+  };
+
+  useEffect(() => {
+    refresh();
+  }, [phone.id]);
+
+  useEffect(() => {
+    if (!live) return undefined;
+    const timer = setInterval(refresh, 2000);
+    return () => clearInterval(timer);
+  }, [live, phone.id]);
+
+  const act = (path, body = {}) => run(async () => {
+    await api.post(`/api/phones/${phone.id}/${path}`, body);
+    await refresh();
+  });
+
+  const sendText = () => act("type", { text }).then(() => setText(""));
+  const targetNames = targets?.targets || [];
+
+  return (
+    <Modal title={`${phone.name} — device control`} onClose={onClose}>
+      <div className="phone-console">
+        <div className="phone-preview">
+          <img className="phone-screen" src={`/api/phones/${phone.id}/screenshot?t=${stamp}`} alt={`${phone.name} screen`} />
+          <div className="row" style={{ justifyContent: "center" }}>
+            <button className="small" onClick={refresh}>Refresh screen</button>
+            <label className="inline-field compact-toggle">
+              <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
+              Live refresh
+            </label>
+          </div>
+        </div>
+
+        <div className="phone-controls">
+          <Banner error={error} />
+          <div className="phone-facts">
+            <div><span>Driver</span><b>{phone.driver}</b></div>
+            <div><span>Android</span><b>{phone.android_version || "—"}</b></div>
+            <div><span>Resolution</span><b>{phone.screen_w ? `${phone.screen_w}×${phone.screen_h}` : "—"}</b></div>
+            <div><span>Status</span><b>{phone.online ? "Online" : "Offline"}</b></div>
+          </div>
+          <div className="device-context">
+            <span>{state?.package || "Reading device…"}</span>
+            <b>{state?.activity || ""}</b>
+            {state && <small>{state.nodes?.length || 0} visible UI elements</small>}
+          </div>
+
+          <h3>Open app</h3>
+          <div className="row">
+            <button onClick={() => act("app-start", { package: "com.instagram.android" })} disabled={busy}>Instagram</button>
+            <button onClick={() => act("app-start", { package: "com.twitter.android" })} disabled={busy}>X</button>
+            <button onClick={() => state?.package && act("app-stop", { package: state.package })} disabled={busy || !state?.package || state.package === "android"}>Stop app</button>
+          </div>
+
+          <h3>Navigation</h3>
+          <div className="remote-grid">
+            <span />
+            <button onClick={() => act("swipe", { direction: "down" })} disabled={busy}>↑</button>
+            <span />
+            <button onClick={() => act("swipe", { direction: "right" })} disabled={busy}>←</button>
+            <button onClick={() => act("key", { keycode: "HOME" })} disabled={busy}>Home</button>
+            <button onClick={() => act("swipe", { direction: "left" })} disabled={busy}>→</button>
+            <span />
+            <button onClick={() => act("swipe", { direction: "up" })} disabled={busy}>↓</button>
+            <span />
+          </div>
+          <div className="row">
+            <button onClick={() => act("key", { keycode: "BACK" })} disabled={busy}>Back</button>
+            <button onClick={() => act("key", { keycode: "RECENTS" })} disabled={busy}>Recent apps</button>
+            <button onClick={() => act("key", { keycode: "ENTER" })} disabled={busy}>Enter</button>
+          </div>
+
+          <h3>Interact with the screen</h3>
+          <div className="row no-wrap">
+            <select value={target} onChange={(e) => setTarget(e.target.value)}>
+              <option value="">Choose a named target…</option>
+              {targetNames.map((name) => <option key={name} value={name}>{name}</option>)}
+            </select>
+            <button onClick={() => act("tap", { target })} disabled={busy || !target}>Tap</button>
+          </div>
+          <div className="row no-wrap">
+            <input value={text} onChange={(e) => setText(e.target.value)} placeholder="Type into the focused field" />
+            <button onClick={sendText} disabled={busy || !text}>Send</button>
+          </div>
+          <div className="small muted">Controls are disabled automatically while this phone is publishing.</div>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
@@ -465,6 +568,14 @@ function Providers() {
 
 function ProviderRow({ provider, onChanged }) {
   const [key, setKey] = useState("");
+  const [configuring, setConfiguring] = useState(false);
+  const [config, setConfig] = useState({
+    model: provider.model || "",
+    project: provider.options?.project || "",
+    location: provider.options?.location || "global",
+    video_location: provider.options?.video_location || "us-central1",
+    output_gcs_uri: provider.options?.output_gcs_uri || "",
+  });
   const { busy, error, run } = useAction();
 
   const check = () =>
@@ -505,6 +616,7 @@ function ProviderRow({ provider, onChanged }) {
           {provider.last_check_ok === false && <Tag kind="bad">failing</Tag>}
           <Tag kind={provider.enabled ? "" : "muted"}>{provider.enabled ? "enabled" : "disabled"}</Tag>
           <button onClick={check} disabled={busy}>{busy ? "Checking…" : "Test"}</button>
+          <button onClick={() => setConfiguring((value) => !value)} disabled={busy}>Configure</button>
           <button onClick={() => patch({ enabled: !provider.enabled })} disabled={busy}>
             {provider.enabled ? "Disable" : "Enable"}
           </button>
@@ -530,6 +642,32 @@ function ProviderRow({ provider, onChanged }) {
         />
         <button onClick={() => patch({ api_key: key })} disabled={busy || !key}>Save key</button>
       </div>
+      {configuring && (
+        <div className="provider-inline-config">
+          <div className="grid two">
+            <Field label="Model"><input value={config.model} onChange={(e) => setConfig({ ...config, model: e.target.value })} /></Field>
+            {provider.adapter === "google_genai" && <>
+              <Field label="Google Cloud project"><input value={config.project} onChange={(e) => setConfig({ ...config, project: e.target.value })} placeholder="my-project-id" /></Field>
+              <Field label="Image location"><input value={config.location} onChange={(e) => setConfig({ ...config, location: e.target.value })} placeholder="global" /></Field>
+              <Field label="Veo location"><input value={config.video_location} onChange={(e) => setConfig({ ...config, video_location: e.target.value })} placeholder="us-central1" /></Field>
+              <Field label="Veo output GCS path"><input value={config.output_gcs_uri} onChange={(e) => setConfig({ ...config, output_gcs_uri: e.target.value })} placeholder="gs://bucket/aluna-renders" /></Field>
+            </>}
+          </div>
+          <div className="row end">
+            <button onClick={() => setConfiguring(false)}>Cancel</button>
+            <button className="primary" disabled={busy} onClick={() => patch({
+              model: config.model || null,
+              options: provider.adapter === "google_genai" ? {
+                ...(provider.options || {}),
+                project: config.project,
+                location: config.location,
+                video_location: config.video_location,
+                output_gcs_uri: config.output_gcs_uri,
+              } : provider.options,
+            }).then(() => setConfiguring(false))}>Save configuration</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -544,6 +682,7 @@ function ProviderModal({ catalog, onClose, onSaved }) {
     api_key: "",
     model: "",
     is_default: true,
+    options: {},
   });
   const { busy, error, run } = useAction();
 
@@ -553,6 +692,7 @@ function ProviderModal({ catalog, onClose, onSaved }) {
       kind: adapter.kinds.includes(f.kind) ? f.kind : adapter.kinds[0],
       base_url: adapter.base_url,
       model: "",
+      options: {},
     }));
   }, [adapterName]);
 
@@ -568,6 +708,7 @@ function ProviderModal({ catalog, onClose, onSaved }) {
         base_url: form.base_url || null,
         api_key: form.api_key || null,
         model: form.model || null,
+        options: Object.fromEntries(Object.entries(form.options).filter(([, value]) => String(value).trim())),
         is_default: form.is_default,
       });
       onSaved();
@@ -618,6 +759,26 @@ function ProviderModal({ catalog, onClose, onSaved }) {
       <Field label="API key" hint={adapter.key_hint}>
         <input type="password" value={form.api_key} onChange={set("api_key")} />
       </Field>
+      {adapter.option_fields?.length > 0 && (
+        <div className="provider-options">
+          <div className="eyebrow">Vertex configuration</div>
+          <div className="grid two">
+            {adapter.option_fields.map((option) => (
+              <Field key={option.id} label={option.label}>
+                <input
+                  value={form.options[option.id] || ""}
+                  placeholder={option.placeholder}
+                  onChange={(e) => setForm({
+                    ...form,
+                    options: { ...form.options, [option.id]: e.target.value },
+                  })}
+                />
+              </Field>
+            ))}
+          </div>
+          <div className="small muted">Project settings are required for Veo. Gemini images can use only an API key.</div>
+        </div>
+      )}
       <label className="inline-field" style={{ cursor: "pointer" }}>
         <input
           type="checkbox"
@@ -627,5 +788,67 @@ function ProviderModal({ catalog, onClose, onSaved }) {
         <span>Use this as the default {form.kind} provider</span>
       </label>
     </Modal>
+  );
+}
+
+/* ---------------- security ---------------- */
+
+function Security({ user }) {
+  const [form, setForm] = useState({ current: "", next: "", confirm: "" });
+  const [saved, setSaved] = useState(false);
+  const { busy, error, run } = useAction();
+  const mismatch = form.confirm && form.next !== form.confirm;
+
+  const save = () => run(async () => {
+    await api.post("/api/auth/change-password", {
+      current_password: form.current,
+      new_password: form.next,
+    });
+    setForm({ current: "", next: "", confirm: "" });
+    setSaved(true);
+  });
+
+  return (
+    <div className="grid two security-grid">
+      <div className="panel">
+        <h3>Administrator account</h3>
+        <div className="security-identity">
+          <div className="security-avatar">{(user?.username || "A").slice(0, 2).toUpperCase()}</div>
+          <div>
+            <b>{user?.username || "Administrator"}</b>
+            <div className="small muted">Local studio administrator</div>
+          </div>
+        </div>
+        <div className="sep" />
+        <div className="stack small">
+          <div className="spread"><span className="muted">Session</span><Tag kind="ok">Authenticated</Tag></div>
+          <div className="spread"><span className="muted">Cookie protection</span><b>HttpOnly · SameSite strict</b></div>
+          <div className="spread"><span className="muted">Password storage</span><b>PBKDF2-SHA256</b></div>
+          <div className="spread"><span className="muted">Provider keys</span><b>Fernet encrypted</b></div>
+        </div>
+      </div>
+
+      <div className="panel">
+        <h3>Change password</h3>
+        <p className="small muted">Changing it signs out every other studio session.</p>
+        <Banner error={error} />
+        {saved && <div className="banner">Password updated. Other sessions were signed out.</div>}
+        <Field label="Current password">
+          <input type="password" autoComplete="current-password" value={form.current} onChange={(e) => { setSaved(false); setForm({ ...form, current: e.target.value }); }} />
+        </Field>
+        <Field label="New password" hint="Use at least 10 characters.">
+          <input type="password" autoComplete="new-password" value={form.next} onChange={(e) => { setSaved(false); setForm({ ...form, next: e.target.value }); }} />
+        </Field>
+        <Field label="Confirm new password">
+          <input type="password" autoComplete="new-password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} />
+          {mismatch && <div className="issue small">Passwords do not match.</div>}
+        </Field>
+        <div className="row end">
+          <button className="primary" onClick={save} disabled={busy || mismatch || !form.current || form.next.length < 10}>
+            {busy ? "Updating…" : "Update password"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

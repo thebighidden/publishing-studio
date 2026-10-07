@@ -9,15 +9,21 @@ export default function Dashboard({ events, bump }) {
   if (!overview) return <Empty>Loading…</Empty>;
 
   const r = overview.runs;
+  const today = new Intl.DateTimeFormat(undefined, {
+    weekday: "long", month: "long", day: "numeric",
+  }).format(new Date());
+
   return (
     <>
-      <div className="page-head">
+      <div className="panel dashboard-hero">
         <div>
-          <h1>Dashboard</h1>
-          <p>
-            A command sent is not a post published. Every run below ended in one of three
-            answers: confirmed, failed, or honestly uncertain.
-          </p>
+          <div className="eyebrow">{today}</div>
+          <h1>Your publishing desk, at a glance.</h1>
+          <p>Plan carefully, approve confidently, and follow every post from draft to verified publication.</p>
+        </div>
+        <div className="hero-note">
+          <b>Evidence over assumptions</b>
+          A post is only marked confirmed after the studio sees it live on the account.
         </div>
       </div>
 
@@ -31,9 +37,12 @@ export default function Dashboard({ events, bump }) {
         />
       </div>
 
-      <div className="grid two" style={{ marginTop: 14 }}>
+      <div className="grid two" style={{ marginTop: 16 }}>
         <div className="panel">
-          <h3>Latest runs</h3>
+          <div className="spread">
+            <h3>Latest runs</h3>
+            <Link className="small" to="/runs">View all</Link>
+          </div>
           {!runs?.length ? (
             <Empty>Nothing has been published yet.</Empty>
           ) : (
@@ -58,7 +67,10 @@ export default function Dashboard({ events, bump }) {
         </div>
 
         <div className="panel">
-          <h3>Live feed</h3>
+          <div className="spread">
+            <h3>Studio activity</h3>
+            <Tag kind={events.length ? "live" : "muted"}>{events.length ? "Live" : "Quiet"}</Tag>
+          </div>
           <div className="feed mono">
             {!events.length ? (
               <Empty>Waiting for activity…</Empty>

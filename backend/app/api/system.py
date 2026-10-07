@@ -5,6 +5,7 @@ import asyncio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
+from .. import auth
 from ..config import (
     ACCOUNT_COOLDOWN_SECONDS,
     RUN_STEP_BUDGET,
@@ -132,6 +133,9 @@ def recent_events() -> list[dict]:
 
 @router.websocket("/events")
 async def event_stream(ws: WebSocket) -> None:
+    if auth.validate_token(ws.cookies.get(auth.COOKIE_NAME)) is None:
+        await ws.close(code=4401)
+        return
     await ws.accept()
     queue = events.subscribe()
     try:

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import base64
+import json
 import os
+from typing import Any
 
 from cryptography.fernet import Fernet, InvalidToken
 
@@ -54,3 +56,18 @@ def fingerprint(value: str | None) -> str | None:
     import hashlib
 
     return base64.b16encode(hashlib.sha256(plain.encode()).digest()[:4]).decode().lower()
+
+
+def seal_json(value: dict[str, Any]) -> str:
+    """Authenticate and encrypt a small application-owned payload."""
+    raw = json.dumps(value, separators=(",", ":"), sort_keys=True).encode()
+    return _fernet().encrypt(raw).decode()
+
+
+def open_json(token: str) -> dict[str, Any] | None:
+    try:
+        raw = _fernet().decrypt(token.encode())
+        value = json.loads(raw)
+        return value if isinstance(value, dict) else None
+    except (InvalidToken, ValueError, TypeError, json.JSONDecodeError):
+        return None

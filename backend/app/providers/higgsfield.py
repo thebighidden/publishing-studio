@@ -171,7 +171,15 @@ class HiggsfieldImage(ImageProvider):
         self.model = model or DEFAULT_IMAGE_PATH
         self.options = options or {}
 
-    def generate(self, prompt: str, *, aspect: str = "1:1", seed: int | None = None) -> MediaResult:
+    def generate(
+        self,
+        prompt: str,
+        *,
+        aspect: str = "1:1",
+        seed: int | None = None,
+        image: bytes | None = None,
+        image_mime: str = "image/png",
+    ) -> MediaResult:
         body: dict[str, Any] = {"prompt": prompt, "num_images": 1}
         if aspect in IMAGE_ASPECTS:
             body["aspect_ratio"] = aspect

@@ -3,9 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>AI Publishing Studio</title>
+    <meta name="theme-color" content="#0f1512" />
+    <meta name="description" content="Plan, approve, schedule, and verify social publishing from one editorial workspace." />
+    <title>Publish Studio</title>
   </head>
   <body>
+    <script>
+      document.documentElement.dataset.theme = localStorage.getItem("studio-theme-v2") || "dark";
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>

@@ -3,12 +3,13 @@ from __future__ import annotations
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from .api import accounts, campaigns, phones, providers, runs, system
+from . import auth as studio_auth
+from .api import accounts, auth, campaigns, creative, phones, providers, runs, system
 from .config import EVIDENCE_DIR, MEDIA_DIR
 from .db import init_db
 from .devices.base import DeviceError
@@ -46,6 +47,19 @@ app.add_middleware(
 )
 
 
+@app.middleware("http")
+async def _require_auth(request: Request, call_next):
+    path = request.url.path
+    is_protected = path.startswith("/api/") or path.startswith("/media/") or path.startswith("/evidence/")
+    is_open = path.startswith("/api/auth/") or path == "/api/health" or request.method == "OPTIONS"
+    if is_protected and not is_open:
+        user = studio_auth.validate_token(request.cookies.get(studio_auth.COOKIE_NAME))
+        if user is None:
+            return JSONResponse(status_code=401, content={"detail": "authentication required"})
+        request.state.user = user
+    return await call_next(request)
+
+
 @app.exception_handler(ProviderError)
 async def _provider_error(_request, exc: ProviderError):
     return JSONResponse(
@@ -59,8 +73,10 @@ async def _device_error(_request, exc: DeviceError):
     return JSONResponse(status_code=502, content={"detail": str(exc), "source": "device"})
 
 
+app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(providers.router)
+app.include_router(creative.router)
 app.include_router(phones.router)
 app.include_router(accounts.router)
 app.include_router(campaigns.router)

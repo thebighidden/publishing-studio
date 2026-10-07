@@ -29,6 +29,7 @@ class ProviderKind(str, Enum):
 
 
 class ProviderAdapter(str, Enum):
+    google_genai = "google_genai"
     higgsfield = "higgsfield"
     openai_compat = "openai_compat"
     anthropic = "anthropic"

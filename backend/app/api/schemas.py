@@ -84,6 +84,15 @@ class AppIn(BaseModel):
     package: str
 
 
+class KeyIn(BaseModel):
+    keycode: str
+
+
+class SwipeIn(BaseModel):
+    direction: str
+    distance: float = Field(default=0.6, ge=0.2, le=0.9)
+
+
 # ---------------- accounts ----------------
 
 

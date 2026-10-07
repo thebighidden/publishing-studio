@@ -75,7 +75,15 @@ class ImageProvider(ABC):
     name = "image"
 
     @abstractmethod
-    def generate(self, prompt: str, *, aspect: str = "1:1", seed: int | None = None) -> MediaResult: ...
+    def generate(
+        self,
+        prompt: str,
+        *,
+        aspect: str = "1:1",
+        seed: int | None = None,
+        image: bytes | None = None,
+        image_mime: str = "image/png",
+    ) -> MediaResult: ...
 
     @abstractmethod
     def check(self) -> str: ...

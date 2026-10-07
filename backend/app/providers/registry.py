@@ -17,6 +17,7 @@ from .base import (
     VideoProvider,
 )
 from .higgsfield import HiggsfieldImage, HiggsfieldVideo
+from .google_genai import GoogleGenAIImage, GoogleVeoVideo
 from .openai_compat import OpenAICompatImage, OpenAICompatText
 from .simulated import SimulatedImage, SimulatedText, SimulatedVideo
 
@@ -47,6 +48,13 @@ def build(cfg: ProviderConfig):
             ProviderKind.image: SimulatedImage,
             ProviderKind.video: SimulatedVideo,
         }[cfg.kind](opts)
+
+    if cfg.adapter == ProviderAdapter.google_genai:
+        if cfg.kind == ProviderKind.image:
+            return GoogleGenAIImage(key, cfg.base_url or "", cfg.model or "", opts)
+        if cfg.kind == ProviderKind.video:
+            return GoogleVeoVideo(key, cfg.base_url or "", cfg.model or "", opts)
+        raise NotConfigured("Google Gen AI is configured here for image and video generation")
 
     if cfg.adapter == ProviderAdapter.higgsfield:
         if cfg.kind == ProviderKind.image:
@@ -121,6 +129,37 @@ def describe(cfg: Optional[ProviderConfig], kind: ProviderKind) -> str:
 # What the Settings screen offers when adding a provider. Kept here so the UI
 # never has to hardcode model names.
 CATALOG = [
+    {
+        "adapter": "google_genai",
+        "label": "Google Gemini + Veo (Aluna workflow)",
+        "kinds": ["image", "video"],
+        "key_hint": (
+            "Gemini API key for images, or service-account JSON for Vertex. "
+            "Leave blank to use Application Default Credentials."
+        ),
+        "base_url": "",
+        "models": {
+            "image": [
+                "gemini-3.1-flash-image",
+                "gemini-3.1-flash-lite-image",
+                "gemini-2.5-flash-image",
+            ],
+            "video": [
+                "veo-3.1-fast-generate-001",
+                "veo-3.1-generate-001",
+            ],
+        },
+        "option_fields": [
+            {"id": "project", "label": "Google Cloud project", "placeholder": "my-project-id"},
+            {"id": "location", "label": "Image location", "placeholder": "global"},
+            {"id": "video_location", "label": "Veo location", "placeholder": "us-central1"},
+            {"id": "output_gcs_uri", "label": "Veo output GCS path", "placeholder": "gs://bucket/aluna-renders"},
+        ],
+        "note": (
+            "The Aluna path: reference-aware Gemini image generation plus Veo image-to-video. "
+            "Veo requires a Google Cloud project, Vertex access, and normally a GCS output path."
+        ),
+    },
     {
         "adapter": "higgsfield",
         "label": "Higgsfield",
