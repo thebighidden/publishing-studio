@@ -9,7 +9,7 @@ from sqlmodel import select
 from ..config import SCHEDULER_TICK_SECONDS
 from ..db import session_scope
 from ..models import Account, Phone, Post, PostStatus, Setting, utcnow
-from . import events
+from . import events, metrics
 from .runner import NotPublishable, execute
 
 STOP_KEY = "publishing_paused"
@@ -27,6 +27,10 @@ class Scheduler:
         self._thread: Optional[threading.Thread] = None
         self._stop = threading.Event()
         self._workers: dict[str, threading.Thread] = {}
+        # Metric collections are tracked per phone separately from publishing
+        # jobs: both book the phone, but only one of them may ever be queued
+        # behind the other.
+        self._metric_workers: dict[str, threading.Thread] = {}
         self.last_tick_at: Optional[float] = None
 
     # ---------------- lifecycle ----------------
@@ -73,6 +77,10 @@ class Scheduler:
                 self._dispatch_due()
             except Exception as exc:  # noqa: BLE001 - the loop must survive anything
                 events.emit("scheduler.error", error=f"{type(exc).__name__}: {exc}")
+            try:
+                self._collect_metrics()
+            except Exception as exc:  # noqa: BLE001
+                events.emit("scheduler.error", error=f"metrics: {type(exc).__name__}: {exc}")
             self.last_tick_at = time.time()
             self._stop.wait(self.tick)
 
@@ -107,6 +115,56 @@ class Scheduler:
                 claimed.add(phone.id)
                 self._spawn(post.id, phone.id)
 
+    def _collect_metrics(self) -> None:
+        """Read performance off the phone for posts whose next reading is owed.
+
+        Publishing always wins: this only ever uses a phone that has no booking,
+        it starts at most one collection per tick, and it stands down entirely
+        while publishing is paused — a paused studio should not be driving
+        anyone's phone at all.
+        """
+        if self.is_paused():
+            return
+        self._reap_metric_workers()
+
+        with session_scope() as session:
+            for post in metrics.due_posts(session, limit=10):
+                account = session.get(Account, post.account_id)
+                if account is None or not account.phone_id:
+                    continue
+                phone = session.get(Phone, account.phone_id)
+                if phone is None or phone.busy_run_id:
+                    continue
+                if phone.id in self._workers and self._workers[phone.id].is_alive():
+                    continue
+                busy = self._metric_workers.get(phone.id)
+                if busy is not None and busy.is_alive():
+                    continue
+                self._spawn_collection(post.id, phone.id)
+                return  # one per tick; the phone is a shared, slow resource
+
+    def _spawn_collection(self, post_id: str, phone_id: str) -> None:
+        def work() -> None:
+            with session_scope() as session:
+                post = session.get(Post, post_id)
+                if post is None:
+                    return
+                try:
+                    metrics.collect(session, post)
+                except metrics.CollectionRefused as exc:
+                    # Lost a race with a publishing run, almost always. Nothing
+                    # is written: a refusal is not a reading of zero.
+                    events.emit("metrics.skipped", post_id=post_id, reason=str(exc))
+
+        t = threading.Thread(target=work, name=f"metrics-{post_id}", daemon=True)
+        self._metric_workers[phone_id] = t
+        t.start()
+
+    def _reap_metric_workers(self) -> None:
+        for phone_id, thread in list(self._metric_workers.items()):
+            if not thread.is_alive():
+                self._metric_workers.pop(phone_id, None)
+
     def _spawn(self, post_id: str, phone_id: str) -> None:
         def work() -> None:
             with session_scope() as session:
@@ -136,6 +194,7 @@ class Scheduler:
             "paused": self.is_paused(),
             "tick_seconds": self.tick,
             "active_jobs": sum(1 for t in self._workers.values() if t.is_alive()),
+            "active_collections": sum(1 for t in self._metric_workers.values() if t.is_alive()),
             "last_tick_at": self.last_tick_at,
         }
 

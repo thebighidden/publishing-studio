@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import math
 import random
 import shutil
 import time
@@ -55,6 +56,10 @@ class _Node:
     clickable: bool = True
     box: tuple[int, int, int, int] = (0, 0, 0, 0)
     focused: bool = False
+    # Which published post this node stands for, when it is a grid tile or a
+    # timeline row. Never crosses into UiNode: it is the simulator's own
+    # bookkeeping, the equivalent of what a real app knows about its own list.
+    ref: Any = None
 
     def to_ui(self, pkg: str) -> UiNode:
         return UiNode(
@@ -76,6 +81,35 @@ class _PublishedPost:
     media: Optional[str]
     url: str
     at: float = field(default_factory=time.time)
+
+    def stats(self) -> dict[str, int]:
+        """Engagement this post would plausibly have by now.
+
+        The simulator is the platform here, so it is allowed to know these
+        numbers — but it still only ever *renders* them, and the collector still
+        has to find the post and read them off the screen. That keeps the
+        collection path identical to the one a real phone takes.
+
+        Growth saturates: most of a post's engagement arrives in the first hour
+        or two and then flattens, which is what makes repeated readings worth
+        charting rather than a straight line.
+        """
+        rng = random.Random(self.url)
+        # About one post in five travels much further than the rest. That is not
+        # decoration: once a count passes a thousand the apps stop printing it
+        # exactly and start showing "1.2K", so without the occasional hit the
+        # abbreviated-label path would never run outside a unit test.
+        reach = rng.randint(20_000, 400_000) if rng.random() < 0.2 else rng.randint(400, 2600)
+        age_minutes = max(0.0, (time.time() - self.at) / 60)
+        progress = 1 - math.exp(-age_minutes / 45)
+        views = int(reach * progress)
+        likes = int(views * rng.uniform(0.06, 0.14))
+        return {
+            "views": views,
+            "likes": likes,
+            "comments": int(likes * rng.uniform(0.03, 0.12)),
+            "reposts": int(likes * rng.uniform(0.02, 0.09)),
+        }
 
 
 class VirtualPhone:
@@ -166,12 +200,24 @@ class VirtualPhone:
                   box=(60, 300, 1020, 420)),
         ]
 
+    def _ig_posts(self) -> list[_PublishedPost]:
+        """Newest first, which is the order the profile grid shows them in."""
+        return list(reversed([p for p in self.published if p.platform == "instagram"]))[:9]
+
     def _nodes_ig_profile(self) -> list[_Node]:
+        posts = self._ig_posts()
         nodes = [
             _Node(rid="tab_feed", desc="Home", box=(40, 1960, 220, 2100)),
             _Node(rid="tab_avatar", desc="Profile", box=(860, 1960, 1040, 2100)),
+            _Node(
+                rid="profile_header_post_count",
+                text=f"{len([p for p in self.published if p.platform == 'instagram'])}",
+                desc="posts",
+                clickable=False,
+                box=(60, 600, 300, 700),
+            ),
         ]
-        for i, _ in enumerate(reversed(self.published[-9:])):
+        for i, post in enumerate(posts):
             r, c = divmod(i, 3)
             x0, y0 = 20 + c * 353, 760 + r * 290
             nodes.append(
@@ -180,19 +226,45 @@ class VirtualPhone:
                     desc="Post thumbnail",
                     cls="android.widget.ImageView",
                     box=(x0, y0, x0 + 340, y0 + 280),
+                    ref=post,
                 )
             )
         return nodes
 
     def _nodes_ig_post_detail(self) -> list[_Node]:
         post = self.viewing
-        return [
+        stats = post.stats() if post else {}
+        nodes = [
             _Node(rid="media", desc="Post photo", cls="android.widget.ImageView",
                   box=(0, 260, W, 1340)),
+            # Instagram labels rather than bare numbers: the collector parses
+            # "1,234 likes" and keeps the raw string beside the parsed value.
+            _Node(
+                rid="row_feed_textview_likes",
+                text=f"{stats.get('likes', 0):,} likes",
+                clickable=False,
+                box=(40, 1360, 560, 1430),
+            ),
+            _Node(
+                rid="row_feed_textview_comments",
+                text=f"View all {stats.get('comments', 0):,} comments",
+                clickable=False,
+                box=(40, 1860, 700, 1930),
+            ),
             _Node(rid="caption", text=post.caption if post else "", clickable=False,
-                  cls="android.widget.TextView", box=(40, 1380, 1040, 1800)),
+                  cls="android.widget.TextView", box=(40, 1450, 1040, 1840)),
             _Node(rid="tab_avatar", desc="Profile", box=(860, 1960, 1040, 2100)),
         ]
+        if post and (post.media or "").endswith(".mp4"):
+            nodes.append(
+                _Node(
+                    rid="video_view_count",
+                    text=f"{stats.get('views', 0):,} views",
+                    clickable=False,
+                    box=(600, 1360, 1040, 1430),
+                )
+            )
+        return nodes
 
     # ---- X ----
 
@@ -246,9 +318,28 @@ class VirtualPhone:
             # app, which is what lets verification read our own words back.
             nodes.append(
                 _Node(rid="row", text=post.caption[:200], desc="Post",
-                      cls="android.view.ViewGroup", box=(40, y0, 1040, y0 + 240))
+                      cls="android.view.ViewGroup", box=(40, y0, 1040, y0 + 240), ref=post)
             )
         return nodes
+
+    def _nodes_x_post_detail(self) -> list[_Node]:
+        post = self.viewing
+        stats = post.stats() if post else {}
+        # X exposes the counts as content descriptions on the action row and
+        # abbreviates the visible label, so the collector reads desc first.
+        return [
+            _Node(rid="tweet_text", text=post.caption if post else "", clickable=False,
+                  cls="android.widget.TextView", box=(40, 320, 1040, 900)),
+            _Node(rid="view_count", text=f"{stats.get('views', 0):,} Views",
+                  clickable=False, box=(40, 940, 500, 1010)),
+            _Node(rid="reply_count", desc=f"{stats.get('comments', 0)} Replies",
+                  text=_abbrev(stats.get("comments", 0)), box=(40, 1060, 280, 1180)),
+            _Node(rid="retweet_count", desc=f"{stats.get('reposts', 0)} Reposts",
+                  text=_abbrev(stats.get("reposts", 0)), box=(300, 1060, 540, 1180)),
+            _Node(rid="like_count", desc=f"{stats.get('likes', 0)} Likes",
+                  text=_abbrev(stats.get("likes", 0)), box=(560, 1060, 800, 1180)),
+            _Node(rid="profile", desc="Profile", box=(40, 1980, 220, 2110)),
+        ]
 
     # ------------------------------------------------------------------
     # interaction
@@ -282,9 +373,14 @@ class VirtualPhone:
         elif rid == "tab_avatar":
             self.screen = "ig_profile"
         elif rid == "image_button":
-            ig = [p for p in self.published if p.platform == "instagram"]
-            if ig:
-                self.viewing = ig[-1]
+            # The tile knows which post it is. Opening "the newest one" whatever
+            # was tapped would hide exactly the bug the metrics collector has to
+            # survive: a grid where our post is not first.
+            post = node.ref or next(
+                (p for p in reversed(self.published) if p.platform == "instagram"), None
+            )
+            if post:
+                self.viewing = post
                 self.screen = "ig_post_detail"
         elif rid == "composer_write":
             self.screen = "x_composer"
@@ -300,7 +396,14 @@ class VirtualPhone:
             self._commit_publish("x")
         elif rid == "profile":
             self.screen = "x_profile"
-        elif rid in ("caption_text_view", "tweet_text"):
+        elif rid == "row" and screen == "x_profile":
+            post = node.ref or next(
+                (p for p in reversed(self.published) if p.platform == "x"), None
+            )
+            if post:
+                self.viewing = post
+                self.screen = "x_post_detail"
+        elif rid in ("caption_text_view", "tweet_text") and screen != "x_post_detail":
             self.keyboard_open = True
 
     def _commit_publish(self, platform: str) -> None:
@@ -363,6 +466,7 @@ class VirtualPhone:
             "x_gallery": "x_composer",
             "x_posted": "x_timeline",
             "x_profile": "x_timeline",
+            "x_post_detail": "x_profile",
         }
         self.screen = order.get(self.screen, "home")
 
@@ -387,6 +491,7 @@ class VirtualPhone:
             "x_gallery": "Photos",
             "x_posted": "X",
             "x_profile": "Profile",
+            "x_post_detail": "Post",
         }.get(self.screen, self.screen)
         d.text((40, 120), title, font=_font(52, True), fill=INK)
         d.line((0, 230, W, 230), fill=LINE, width=2)
@@ -412,9 +517,14 @@ class VirtualPhone:
                 self._draw_thumb(img, (70, 800, 560, 1290))
         elif self.screen == "ig_post_detail" and self.viewing:
             d.multiline_text(
-                (40, 1380), _wrap(self.viewing.caption, 38), font=_font(34), fill=INK, spacing=10
+                (40, 1450), _wrap(self.viewing.caption, 38), font=_font(34), fill=INK, spacing=10
             )
-            d.text((40, 1820), self.viewing.url, font=_font(26), fill=MUTED)
+            d.text((40, 1930), self.viewing.url, font=_font(26), fill=MUTED)
+        elif self.screen == "x_post_detail" and self.viewing:
+            d.multiline_text(
+                (40, 330), _wrap(self.viewing.caption, 36), font=_font(38), fill=INK, spacing=12
+            )
+            d.text((40, 1230), self.viewing.url, font=_font(26), fill=MUTED)
         elif self.screen in ("ig_shared", "x_posted"):
             latest = self.published[-1] if self.published else None
             d.rectangle((60, 290, 1020, 420), fill=(224, 243, 244))
@@ -466,9 +576,28 @@ class VirtualPhone:
             d.rounded_rectangle(node.box, radius=14, outline=LINE, width=3)
             return
         if not node.clickable:
+            # Counter labels have to be legible in the screenshot: that image is
+            # the evidence behind the number the Dashboard will show. The two
+            # blocks drawn by render() itself are skipped so they are not
+            # overprinted.
+            if node.text and node.rid not in ("caption", "tweet_text", "shared_banner"):
+                d.text((x0, y0 + 8), node.text, font=_font(32), fill=MUTED)
             return
         d.rounded_rectangle(node.box, radius=14, fill=(240, 243, 247), outline=LINE, width=2)
         _centered(d, node.box, node.desc or node.text, _font(26), MUTED)
+
+
+def _abbrev(n: int) -> str:
+    """What the app prints next to the icon: 942 stays 942, 1,243 becomes 1.2K.
+
+    The abbreviated form is the whole reason `PostMetric.precision` exists, so
+    the simulator has to produce it or that path is never exercised.
+    """
+    if n < 1000:
+        return str(n)
+    if n < 1_000_000:
+        return f"{n / 1000:.1f}K".replace(".0K", "K")
+    return f"{n / 1_000_000:.1f}M".replace(".0M", "M")
 
 
 def _centered(d, box, text, font, fill):

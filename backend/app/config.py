@@ -48,5 +48,14 @@ ACCOUNT_COOLDOWN_SECONDS = int(os.environ.get("STUDIO_ACCOUNT_COOLDOWN", "90"))
 
 SCHEDULER_TICK_SECONDS = int(os.environ.get("STUDIO_SCHEDULER_TICK", "10"))
 
+# Reading a post's likes and comments is a shorter trip than publishing one:
+# open the app, find our post, read four labels. A tighter budget than a
+# publishing run means a stuck collection can never hold a phone for long.
+METRICS_STEP_BUDGET = int(os.environ.get("STUDIO_METRICS_STEP_BUDGET", "45"))
+METRICS_TIMEOUT_SECONDS = int(os.environ.get("STUDIO_METRICS_TIMEOUT", "180"))
+# Posts older than this stop being polled; engagement has long since settled
+# and the phone is better used for publishing.
+METRICS_WINDOW_DAYS = int(os.environ.get("STUDIO_METRICS_WINDOW_DAYS", "7"))
+
 for _d in (DATA_DIR, MEDIA_DIR, EVIDENCE_DIR):
     _d.mkdir(parents=True, exist_ok=True)

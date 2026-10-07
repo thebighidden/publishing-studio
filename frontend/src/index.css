@@ -1,0 +1,307 @@
+/* Design system: Tailwind v4 + shadcn/ui tokens.
+ *
+ * Deliberately imported WITHOUT Tailwind's preflight. The studio already ships
+ * a complete hand-written stylesheet (styles.css, ~680 lines) driving eight
+ * pages; preflight would reset all of it at once and break every screen in the
+ * same commit. Skipping it lets new surfaces be built with shadcn while the
+ * existing ones keep working, so the migration can go page by page.
+ *
+ * Load order in main.jsx is index.css first, styles.css second. styles.css is
+ * unlayered, so its rules outrank anything in a @layer regardless of order --
+ * which is why legacy element selectors (`button {}`, `input {}`, ...) carry a
+ * `:where(:not(.ui, .ui *))` guard over in that file. Inside a `.ui` surface
+ * Tailwind utilities win; everywhere else legacy is untouched.
+ *
+ * Raw tokens are namespaced `--ui-*` so they can never collide with a legacy
+ * variable of the same name (styles.css already owns `--muted` and `--accent`,
+ * and loads second). The `--color-*` / `--radius-*` names below are the ones
+ * shadcn's generated classes resolve against, so those keep their exact names.
+ * If `npx shadcn add` emits a component referencing a bare `var(--popover)`,
+ * repoint it at `var(--ui-popover)`.
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+@import "tw-animate-css";
+
+/* The app toggles themes with data-theme on <html> (persisted to localStorage
+ * as studio-theme-v2), not with shadcn's default .dark class. Teach the `dark:`
+ * variant to follow that attribute so both systems share one switch. */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
+:root {
+  --ui-radius: 0.65rem;
+
+  --ui-background: oklch(1 0 0);
+  --ui-foreground: oklch(0.15 0 0);
+  --ui-card: oklch(1 0 0);
+  --ui-card-foreground: oklch(0.15 0 0);
+  --ui-popover: oklch(1 0 0);
+  --ui-popover-foreground: oklch(0.15 0 0);
+
+  /* Carried over from the existing brand accent (#6e47ff). */
+  --ui-primary: oklch(0.55 0.245 285);
+  --ui-primary-foreground: oklch(0.985 0 0);
+  /* Here the fill doubles as the text colour: 5.41:1 on white, 4.67:1 on its
+   * own 10% tint. Only the dark theme needs the two to diverge. */
+  --ui-primary-ink: oklch(0.55 0.245 285);
+
+  --ui-secondary: oklch(0.97 0 0);
+  --ui-secondary-foreground: oklch(0.21 0 0);
+  --ui-muted: oklch(0.97 0 0);
+  /* shadcn ships 0.556, which is 4.74:1 on pure white and so only passes AA
+   * against a background this app does not have: the page is a warm off-white
+   * (243,240,232) and `bg-muted` rows are darker still, where 0.556 measures
+   * 4.16:1 and 3.97:1. Darkened until it clears 4.5:1 on the darkest surface
+   * it actually sits on, because nearly every explanation on the Dashboard --
+   * "Not measured yet", the denominators under each headline -- is muted text. */
+  --ui-muted-foreground: oklch(0.52 0 0);
+  --ui-accent: oklch(0.97 0 0);
+  --ui-accent-foreground: oklch(0.21 0 0);
+
+  --ui-destructive: oklch(0.577 0.245 27.325);
+  --ui-destructive-foreground: oklch(0.985 0 0);
+  --ui-success: oklch(0.63 0.17 149);
+  --ui-success-foreground: oklch(0.985 0 0);
+  --ui-warning: oklch(0.75 0.16 70);
+  --ui-warning-foreground: oklch(0.21 0 0);
+
+  /* The `-ink` pair is the same status colour made legible as text.
+   *
+   * `--ui-success` and `--ui-warning` are chosen to work as fills behind
+   * `-foreground`: a 6px dot or a badge. On a white card the amber measures
+   * 2.29:1 and the green 3.25:1, so the same values used as small text fail
+   * WCAG AA badly -- and in this app that small text is load-bearing. It is
+   * what says "Looked 8m ago and found nothing", which is the Dashboard's way
+   * of admitting a number is missing. A caveat nobody can read is worse than
+   * no caveat at all, so text gets a darker variant and fills keep the vivid
+   * one. Measured on white: amber 5.64:1, green 5.45:1. */
+  --ui-success-ink: oklch(0.5 0.17 149);
+  --ui-warning-ink: oklch(0.52 0.16 70);
+
+  --ui-border: oklch(0.922 0 0);
+  --ui-input: oklch(0.922 0 0);
+  --ui-ring: oklch(0.55 0.245 285);
+}
+
+[data-theme="dark"] {
+  --ui-background: oklch(0.145 0 0);
+  --ui-foreground: oklch(0.985 0 0);
+  --ui-card: oklch(0.205 0 0);
+  --ui-card-foreground: oklch(0.985 0 0);
+  --ui-popover: oklch(0.205 0 0);
+  --ui-popover-foreground: oklch(0.985 0 0);
+
+  /* One violet cannot be both here. At L=0.63 a white label on a primary fill
+   * measures 3.7:1 -- the notification badge and the avatar monogram were both
+   * failing -- while anything dark enough to carry white text is too dark to
+   * read as text on the near-black card. So the fill drops to the light
+   * theme's lightness (white label 5.08:1, matching light's 5.18:1) and the
+   * text gets a lighter ink (6.28:1 on the card, 5.62:1 on a 10% tint). */
+  --ui-primary: oklch(0.55 0.22 285);
+  --ui-primary-foreground: oklch(0.985 0 0);
+  --ui-primary-ink: oklch(0.72 0.22 285);
+
+  --ui-secondary: oklch(0.269 0 0);
+  --ui-secondary-foreground: oklch(0.985 0 0);
+  --ui-muted: oklch(0.269 0 0);
+  --ui-muted-foreground: oklch(0.708 0 0);
+  --ui-accent: oklch(0.269 0 0);
+  --ui-accent-foreground: oklch(0.985 0 0);
+
+  --ui-destructive: oklch(0.704 0.191 22.216);
+  --ui-destructive-foreground: oklch(0.985 0 0);
+  --ui-success: oklch(0.7 0.15 149);
+  --ui-success-foreground: oklch(0.145 0 0);
+  --ui-warning: oklch(0.8 0.15 70);
+  --ui-warning-foreground: oklch(0.145 0 0);
+
+  /* Against the dark card these already measure 7.09:1 and 9.36:1 as text, so
+   * the ink is the fill colour: the split exists for the light theme only. */
+  --ui-success-ink: oklch(0.7 0.15 149);
+  --ui-warning-ink: oklch(0.8 0.15 70);
+
+  --ui-border: oklch(1 0 0 / 12%);
+  --ui-input: oklch(1 0 0 / 15%);
+  --ui-ring: oklch(0.63 0.22 285);
+}
+
+@theme inline {
+  --color-background: var(--ui-background);
+  --color-foreground: var(--ui-foreground);
+  --color-card: var(--ui-card);
+  --color-card-foreground: var(--ui-card-foreground);
+  --color-popover: var(--ui-popover);
+  --color-popover-foreground: var(--ui-popover-foreground);
+  --color-primary: var(--ui-primary);
+  --color-primary-foreground: var(--ui-primary-foreground);
+  --color-primary-ink: var(--ui-primary-ink);
+  --color-secondary: var(--ui-secondary);
+  --color-secondary-foreground: var(--ui-secondary-foreground);
+  --color-muted: var(--ui-muted);
+  --color-muted-foreground: var(--ui-muted-foreground);
+  --color-accent: var(--ui-accent);
+  --color-accent-foreground: var(--ui-accent-foreground);
+  --color-destructive: var(--ui-destructive);
+  --color-destructive-foreground: var(--ui-destructive-foreground);
+  --color-success: var(--ui-success);
+  --color-success-foreground: var(--ui-success-foreground);
+  --color-success-ink: var(--ui-success-ink);
+  --color-warning: var(--ui-warning);
+  --color-warning-foreground: var(--ui-warning-foreground);
+  --color-warning-ink: var(--ui-warning-ink);
+  --color-border: var(--ui-border);
+  --color-input: var(--ui-input);
+  --color-ring: var(--ui-ring);
+
+  --radius-sm: calc(var(--ui-radius) - 4px);
+  --radius-md: calc(var(--ui-radius) - 2px);
+  --radius-lg: var(--ui-radius);
+  --radius-xl: calc(var(--ui-radius) + 4px);
+}
+
+/* Scoped stand-in for preflight.
+ *
+ * Applies only inside a `.ui` surface, so legacy pages are untouched. Because
+ * the legacy element rules are guarded out of `.ui`, elements in here would
+ * otherwise fall all the way back to browser defaults -- buttons rendering
+ * with buttonface grey and a system font. These are the parts of preflight
+ * that shadcn components actually depend on. */
+@layer base {
+  .ui,
+  .ui *,
+  .ui *::before,
+  .ui *::after {
+    box-sizing: border-box;
+    border-width: 0;
+    border-style: solid;
+    border-color: var(--ui-border);
+  }
+
+  .ui {
+    color: var(--ui-foreground);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+      "Helvetica Neue", Arial, sans-serif;
+    font-feature-settings: "cv11", "ss01";
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Form controls do not inherit font or colour on their own. */
+  .ui button,
+  .ui input,
+  .ui optgroup,
+  .ui select,
+  .ui textarea {
+    font: inherit;
+    font-feature-settings: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+    margin: 0;
+    padding: 0;
+    background-color: transparent;
+    background-image: none;
+    border-radius: 0;
+  }
+
+  .ui button,
+  .ui [type="button"],
+  .ui [type="reset"],
+  .ui [type="submit"] {
+    appearance: button;
+    background-color: transparent;
+    cursor: pointer;
+  }
+
+  .ui :disabled {
+    cursor: default;
+  }
+
+  .ui textarea {
+    resize: vertical;
+  }
+
+  .ui ::placeholder {
+    color: var(--ui-muted-foreground);
+    opacity: 1;
+  }
+
+  /* Typography and lists: shadcn sets every size and weight with utilities. */
+  .ui h1,
+  .ui h2,
+  .ui h3,
+  .ui h4,
+  .ui h5,
+  .ui h6 {
+    font-size: inherit;
+    font-weight: inherit;
+    font-family: inherit;
+    margin: 0;
+  }
+
+  .ui p,
+  .ui figure,
+  .ui blockquote,
+  .ui dl,
+  .ui dd,
+  .ui pre,
+  .ui hr {
+    margin: 0;
+  }
+
+  .ui ol,
+  .ui ul,
+  .ui menu {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  .ui a {
+    color: inherit;
+    text-decoration: inherit;
+  }
+
+  .ui code,
+  .ui kbd,
+  .ui samp,
+  .ui pre {
+    font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono",
+      monospace;
+    font-size: 1em;
+  }
+
+  .ui table {
+    text-indent: 0;
+    border-color: inherit;
+    border-collapse: collapse;
+  }
+
+  .ui img,
+  .ui svg,
+  .ui video,
+  .ui canvas,
+  .ui audio,
+  .ui iframe,
+  .ui embed,
+  .ui object {
+    display: block;
+    vertical-align: middle;
+  }
+
+  .ui img,
+  .ui video {
+    max-width: 100%;
+    height: auto;
+  }
+
+  .ui button:focus-visible,
+  .ui [role="button"]:focus-visible,
+  .ui input:focus-visible,
+  .ui select:focus-visible,
+  .ui textarea:focus-visible {
+    outline: 2px solid var(--ui-ring);
+    outline-offset: 2px;
+  }
+}

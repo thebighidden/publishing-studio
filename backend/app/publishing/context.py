@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -11,6 +12,17 @@ from ..devices.base import DeviceDriver, DeviceError, ScreenState, TapResult, Ui
 
 class BudgetExceeded(RuntimeError):
     """Hit the step budget or the wall clock. Rule R7: every run is bounded."""
+
+
+def _safe_name(name: str) -> str:
+    """Make an evidence filename safe to write anywhere.
+
+    Worth the three lines: on Windows a colon in a filename does not fail, it
+    opens an NTFS alternate data stream, so the PNG lands inside an invisible
+    0-byte file and the /evidence URL 404s later. Evidence that disappears
+    quietly is the worst possible failure mode in this system.
+    """
+    return re.sub(r'[<>:"/\\|?*\x00-\x1f]', "-", name)
 
 
 @dataclass
@@ -231,7 +243,7 @@ class RunContext:
         except Exception as exc:
             self._record(f"screenshot:{label}", False, int((time.monotonic() - t0) * 1000), str(exc))
             return None
-        name = f"{self.run_id}_{label}_{uuid.uuid4().hex[:6]}.png"
+        name = _safe_name(f"{self.run_id}_{label}_{uuid.uuid4().hex[:6]}.png")
         (EVIDENCE_DIR / name).write_bytes(png)
         self._record(
             f"screenshot:{label}",

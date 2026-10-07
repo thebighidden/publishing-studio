@@ -109,6 +109,39 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "profile_header_post_count_front"},
         {"id": "profile_header_post_count"},
     ],
+    # The caption on an open post. Used to prove the tile we opened is the post
+    # we are collecting numbers for, before any of those numbers are believed.
+    "instagram.post_detail_caption": [
+        {"id": "row_feed_comment_textview_layout"},
+        {"id": "caption_text_view"},
+        {"id": "caption"},
+    ],
+    # ---- engagement counters, read off an open post ----
+    # Instagram renders these as a label rather than a number on its own:
+    # "1,234 likes", "View all 56 comments", "12.3K views". The collector keeps
+    # the raw string next to the parsed number for exactly that reason.
+    "instagram.post_like_count": [
+        {"id": "row_feed_textview_likes"},
+        {"id": "like_count"},
+        {"desc": "likes", "exact": False},
+        {"text": "likes", "exact": False},
+    ],
+    "instagram.post_comment_count": [
+        {"id": "row_feed_textview_comments"},
+        {"id": "comment_count"},
+        {"text": "comments", "exact": False},
+        {"desc": "comments", "exact": False},
+    ],
+    "instagram.post_view_count": [
+        {"id": "video_view_count"},
+        {"id": "play_count"},
+        {"text": "views", "exact": False},
+        {"text": "plays", "exact": False},
+    ],
+    "instagram.follower_count": [
+        {"id": "row_profile_header_textview_followers_count"},
+        {"id": "follower_count"},
+    ],
     # ---------------- X / Twitter (com.twitter.android) ----------------
     "x.compose": [
         {"id": "composer_write"},
@@ -149,6 +182,33 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "row", "nth": 0},
         {"cls": "android.view.ViewGroup", "clickable": True, "nth": 0},
     ],
+    "x.post_detail_text": [
+        {"id": "tweet_text"},
+        {"id": "status_content"},
+        {"id": "row"},
+    ],
+    # X puts the number in the content description ("12 Likes") and often leaves
+    # the visible text abbreviated, so desc comes before text here.
+    "x.post_like_count": [
+        {"id": "like_count"},
+        {"id": "inline_like_count"},
+        {"desc": "Likes", "exact": False},
+    ],
+    "x.post_reply_count": [
+        {"id": "reply_count"},
+        {"id": "inline_reply_count"},
+        {"desc": "Replies", "exact": False},
+    ],
+    "x.post_repost_count": [
+        {"id": "retweet_count"},
+        {"id": "inline_retweet_count"},
+        {"desc": "Reposts", "exact": False},
+    ],
+    "x.post_view_count": [
+        {"id": "view_count"},
+        {"text": "Views", "exact": False},
+        {"desc": "Views", "exact": False},
+    ],
     # ---------------- generic / system ----------------
     "system.allow_permission": [
         {"id": "permission_allow_button"},
@@ -161,6 +221,21 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"text": "OK", "exact": True},
     ],
 }
+
+
+# Grid and timeline positions, one name per slot. The metrics collector has to
+# be able to open something other than the newest post, and rule R6 says it may
+# only ever ask for a *name* — so each position is a name rather than an index
+# the caller passes in. The selectors are the ones above with `nth` rewritten.
+for _slot in range(9):
+    DEFAULT_CATALOG[f"instagram.profile_post_{_slot + 1}"] = [
+        {**sel, "nth": _slot} for sel in DEFAULT_CATALOG["instagram.first_profile_post"]
+    ]
+for _slot in range(6):
+    DEFAULT_CATALOG[f"x.timeline_post_{_slot + 1}"] = [
+        {**sel, "nth": _slot} for sel in DEFAULT_CATALOG["x.first_timeline_post"]
+    ]
+del _slot
 
 
 def _load_overrides() -> dict[str, list[dict[str, Any]]]:

@@ -6,12 +6,15 @@ from typing import Any
 from ..context import RunContext
 from .base import (
     Evidence,
+    MetricReading,
     PostPayload,
     PublishFailed,
     Recipe,
     count_on_screen,
     distinctive_token,
     labelled_count,
+    read_count,
+    screen_has_token,
 )
 
 
@@ -159,6 +162,87 @@ class InstagramRecipe(Recipe):
             ),
             screenshots=[s for s in shots if s],
             checks=checks,
+        )
+
+
+    def collect(self, ctx: RunContext, payload: PostPayload, *, max_slots: int = 6) -> MetricReading:
+        """Walk the profile grid until a tile carries our caption, then read the
+        counters off that post.
+
+        Opening tile 0 and trusting it would be wrong the moment the account
+        posts anything by hand, and a wrong number is worse than no number: the
+        whole point of this studio is that what it reports was observed.
+        """
+        ctx.app_start(self.package)
+        ctx.tap_if_present("system.allow_permission")
+        ctx.tap("instagram.profile_tab")
+        time.sleep(1.5)
+
+        token = distinctive_token(payload.caption)
+        if not token:
+            return MetricReading(
+                found=False,
+                note=(
+                    "this caption has no distinctive word, so its post cannot be "
+                    "told apart from the others on the grid"
+                ),
+            )
+
+        tiles = min(max_slots, 9)
+        for slot in range(1, tiles + 1):
+            target = f"instagram.profile_post_{slot}"
+            try:
+                ctx.tap(target)
+            except Exception as exc:
+                ctx.note("collect-grid", f"grid position {slot} did not open: {exc}", ok=False)
+                break
+            time.sleep(1.8)
+
+            if not screen_has_token(ctx, token):
+                ctx.key("KEYCODE_BACK")
+                time.sleep(1.0)
+                continue
+
+            likes, likes_approx, likes_raw = read_count(ctx, "instagram.post_like_count")
+            comments, comments_approx, comments_raw = read_count(ctx, "instagram.post_comment_count")
+            views, views_approx, views_raw = read_count(ctx, "instagram.post_view_count")
+            shot = ctx.screenshot(f"metrics-{slot}")
+
+            seen = [n for n in (likes, comments, views) if n is not None]
+            reading = MetricReading(
+                found=True,
+                likes=likes,
+                comments=comments,
+                views=views,
+                approximate=any([likes_approx, comments_approx, views_approx]),
+                note=(
+                    f"read off the post at grid position {slot}, recognised by the "
+                    f"word {token!r} in its caption"
+                    if seen
+                    else (
+                        f"found our post at grid position {slot}, but it showed no "
+                        "counters to read"
+                    )
+                ),
+                raw={"likes": likes_raw, "comments": comments_raw, "views": views_raw},
+                matched_by={"matched_by": "caption_token", "token": token, "slot": slot},
+                screenshot=shot,
+            )
+            ctx.note(
+                "collect",
+                f"likes={likes} comments={comments} views={views}"
+                + (" (abbreviated on screen)" if reading.approximate else ""),
+            )
+            ctx.key("KEYCODE_BACK")
+            return reading
+
+        return MetricReading(
+            found=False,
+            matched_by={"matched_by": "caption_token", "token": token, "searched": tiles},
+            note=(
+                f"the word {token!r} was not on any of the first {tiles} posts of the "
+                "grid; the post may be older than that, or may no longer be up"
+            ),
         )
 
 

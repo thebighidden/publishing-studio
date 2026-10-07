@@ -4,7 +4,17 @@ import time
 from typing import Any
 
 from ..context import RunContext
-from .base import Evidence, PostPayload, PublishFailed, Recipe, count_on_screen, distinctive_token
+from .base import (
+    Evidence,
+    MetricReading,
+    PostPayload,
+    PublishFailed,
+    Recipe,
+    count_on_screen,
+    distinctive_token,
+    read_count,
+    screen_has_token,
+)
 
 MAX_CHARS = 280
 
@@ -123,6 +133,87 @@ class XRecipe(Recipe):
             note=f"timeline still shows {after} posts; nothing was added",
             screenshots=[s for s in shots if s],
             checks=checks,
+        )
+
+
+    def collect(self, ctx: RunContext, payload: PostPayload, *, max_slots: int = 6) -> MetricReading:
+        """Open our own post on the account timeline and read its counters.
+
+        X puts replies, reposts, likes and views on the post itself, so one
+        screen has everything — but only once we are sure the row we opened is
+        ours, which is what the caption token is for.
+        """
+        ctx.app_start(self.package)
+        ctx.tap_if_present("system.allow_permission")
+        ctx.tap("x.profile_tab")
+        time.sleep(1.5)
+
+        token = distinctive_token(payload.caption)
+        if not token:
+            return MetricReading(
+                found=False,
+                note=(
+                    "this post has no distinctive word, so it cannot be told apart "
+                    "from the others on the timeline"
+                ),
+            )
+
+        rows = min(max_slots, 6)
+        for slot in range(1, rows + 1):
+            target = f"x.timeline_post_{slot}"
+            try:
+                ctx.tap(target)
+            except Exception as exc:
+                ctx.note("collect-timeline", f"row {slot} did not open: {exc}", ok=False)
+                break
+            time.sleep(1.8)
+
+            if not screen_has_token(ctx, token):
+                ctx.key("KEYCODE_BACK")
+                time.sleep(1.0)
+                continue
+
+            likes, likes_approx, likes_raw = read_count(ctx, "x.post_like_count")
+            replies, replies_approx, replies_raw = read_count(ctx, "x.post_reply_count")
+            reposts, reposts_approx, reposts_raw = read_count(ctx, "x.post_repost_count")
+            views, views_approx, views_raw = read_count(ctx, "x.post_view_count")
+            shot = ctx.screenshot(f"metrics-{slot}")
+
+            reading = MetricReading(
+                found=True,
+                likes=likes,
+                comments=replies,
+                shares=reposts,
+                views=views,
+                approximate=any([likes_approx, replies_approx, reposts_approx, views_approx]),
+                note=(
+                    f"read off the post at timeline row {slot}, recognised by the "
+                    f"word {token!r} in its text"
+                ),
+                raw={
+                    "likes": likes_raw,
+                    "comments": replies_raw,
+                    "shares": reposts_raw,
+                    "views": views_raw,
+                },
+                matched_by={"matched_by": "caption_token", "token": token, "slot": slot},
+                screenshot=shot,
+            )
+            ctx.note(
+                "collect",
+                f"likes={likes} replies={replies} reposts={reposts} views={views}"
+                + (" (abbreviated on screen)" if reading.approximate else ""),
+            )
+            ctx.key("KEYCODE_BACK")
+            return reading
+
+        return MetricReading(
+            found=False,
+            matched_by={"matched_by": "caption_token", "token": token, "searched": rows},
+            note=(
+                f"the word {token!r} was not on any of the first {rows} posts of the "
+                "timeline; the post may be older than that, or may no longer be up"
+            ),
         )
 
 

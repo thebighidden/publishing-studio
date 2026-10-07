@@ -9,12 +9,23 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth as studio_auth
-from .api import accounts, auth, campaigns, creative, phones, providers, runs, system
+from .api import (
+    accounts,
+    auth,
+    campaigns,
+    creative,
+    metrics,
+    phones,
+    providers,
+    runs,
+    system,
+)
 from .config import EVIDENCE_DIR, MEDIA_DIR
 from .db import init_db
 from .devices.base import DeviceError
 from .providers.base import ProviderError
 from .publishing import events
+from .publishing.runner import release_abandoned_runs
 from .publishing.scheduler import scheduler
 from .seed import seed_if_empty
 
@@ -23,6 +34,11 @@ from .seed import seed_if_empty
 async def lifespan(_app: FastAPI):
     init_db()
     seed_if_empty()
+    # Before the scheduler is allowed to look for work, close out whatever the
+    # previous process left in flight. Otherwise a phone booked by a run that
+    # died stays booked for good, and nothing on that phone can be published
+    # or measured again.
+    release_abandoned_runs()
     events.bind_loop(asyncio.get_running_loop())
     scheduler.start()
     try:
@@ -81,6 +97,7 @@ app.include_router(phones.router)
 app.include_router(accounts.router)
 app.include_router(campaigns.router)
 app.include_router(runs.router)
+app.include_router(metrics.router)
 
 app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
 app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")

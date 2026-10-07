@@ -9,6 +9,7 @@ from ..devices import registry as devices
 from ..devices.base import DeviceError
 from ..devices.targets import resolve
 from ..models import Account, Phone, Platform, Post, PostStatus, utcnow
+from ..publishing.metrics import describe_booking
 from ..publishing.recipes.instagram import InstagramRecipe
 from ..publishing.recipes.x import XRecipe
 from .schemas import AccountIn, AccountUpdate
@@ -102,7 +103,7 @@ def check_login(account_id: str, session: Session = Depends(get_session)) -> dic
     if phone is None:
         raise HTTPException(400, "linked phone no longer exists")
     if phone.busy_run_id:
-        raise HTTPException(409, f"{phone.name} is busy with run {phone.busy_run_id}")
+        raise HTTPException(409, f"{phone.name} is busy: {describe_booking(phone.busy_run_id)}")
 
     recipe = _RECIPES[account.platform]()
     driver = devices.driver_for(phone)

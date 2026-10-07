@@ -95,6 +95,24 @@ class MediaKind(str, Enum):
     video = "video"
 
 
+class MetricSource(str, Enum):
+    """Where a performance number came from. `device` means it was read off the
+    phone screen; `manual` means a human typed it in. There is no API source,
+    because this studio never swaps the device layer for a platform API."""
+
+    device = "device"
+    manual = "manual"
+
+
+class MetricPrecision(str, Enum):
+    """Instagram shows "1,234 likes" on a small post and "1.2K likes" on a
+    popular one. Both are worth recording, but only one of them can prove a
+    delta of one, so the reading carries its own precision."""
+
+    exact = "exact"
+    approximate = "approximate"
+
+
 # --------------------------------------------------------------------------
 # tables
 # --------------------------------------------------------------------------
@@ -237,6 +255,45 @@ class RunStep(SQLModel, table=True):
     detail: Optional[str] = Field(default=None, sa_column=Column(Text))
     screenshot: Optional[str] = None
     at: datetime = Field(default_factory=utcnow)
+
+
+class PostMetric(SQLModel, table=True):
+    """One reading of how a published post is doing, taken by looking at it.
+
+    Append-only: every collection writes a new row, so the Dashboard can show a
+    trend rather than a single number, and a reading is never silently revised.
+    Every field is Optional because a screen that does not show comments is not
+    the same as a post with zero comments — `None` means "not observed", and the
+    UI must not render it as 0.
+    """
+
+    __tablename__ = "post_metric"
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    post_id: str = Field(foreign_key="post.id", index=True)
+    account_id: Optional[str] = Field(default=None, foreign_key="account.id")
+    platform: Optional[Platform] = None
+
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    views: Optional[int] = None
+    shares: Optional[int] = None  # X reposts
+    saves: Optional[int] = None
+
+    precision: MetricPrecision = MetricPrecision.exact
+    source: MetricSource = MetricSource.device
+    # How the post was recognised on the grid, so a reading can be audited:
+    # {"matched_by": "caption_token", "token": "...", "tile": 0}
+    matched_by: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    # The raw strings as they appeared on screen, before parsing.
+    raw: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    screenshot: Optional[str] = None
+    note: Optional[str] = Field(default=None, sa_column=Column(Text))
+    collected_at: datetime = Field(default_factory=utcnow, index=True)
+
+    def engagement(self) -> int:
+        """Interactions we actually saw. Absent fields contribute nothing."""
+        return sum(v for v in (self.likes, self.comments, self.shares, self.saves) if v)
 
 
 class Setting(SQLModel, table=True):
