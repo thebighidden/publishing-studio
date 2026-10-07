@@ -1,0 +1,37 @@
+# --- secrets and local state -------------------------------------------
+# secret.key is the Fernet key that encrypts provider API keys, and
+# studio.db holds those encrypted blobs. Publishing either one defeats the
+# encryption, so the whole data directory stays local.
+backend/app/data/
+*.key
+.env
+.env.*
+!.env.example
+
+# --- dependencies ------------------------------------------------------
+backend/.venv/
+.venv/
+venv/
+node_modules/
+
+# --- python ------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# --- frontend build ----------------------------------------------------
+frontend/dist/
+frontend/.vite/
+*.local
+
+# --- editors / os ------------------------------------------------------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# --- logs --------------------------------------------------------------
+*.log

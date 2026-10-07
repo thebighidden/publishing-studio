@@ -1,0 +1,70 @@
+from __future__ import annotations
+
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+
+from .api import accounts, campaigns, phones, providers, runs, system
+from .config import EVIDENCE_DIR, MEDIA_DIR
+from .db import init_db
+from .devices.base import DeviceError
+from .providers.base import ProviderError
+from .publishing import events
+from .publishing.scheduler import scheduler
+from .seed import seed_if_empty
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    seed_if_empty()
+    events.bind_loop(asyncio.get_running_loop())
+    scheduler.start()
+    try:
+        yield
+    finally:
+        scheduler.shutdown()
+
+
+app = FastAPI(
+    title="AI Publishing Studio",
+    version="0.1.0",
+    description="Campaign brief in, approved posts out, published from a real phone.",
+    lifespan=lifespan,
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+@app.exception_handler(ProviderError)
+async def _provider_error(_request, exc: ProviderError):
+    return JSONResponse(
+        status_code=502,
+        content={"detail": str(exc), "retryable": exc.retryable, "source": "provider"},
+    )
+
+
+@app.exception_handler(DeviceError)
+async def _device_error(_request, exc: DeviceError):
+    return JSONResponse(status_code=502, content={"detail": str(exc), "source": "device"})
+
+
+app.include_router(system.router)
+app.include_router(providers.router)
+app.include_router(phones.router)
+app.include_router(accounts.router)
+app.include_router(campaigns.router)
+app.include_router(runs.router)
+
+app.mount("/media", StaticFiles(directory=MEDIA_DIR), name="media")
+app.mount("/evidence", StaticFiles(directory=EVIDENCE_DIR), name="evidence")
