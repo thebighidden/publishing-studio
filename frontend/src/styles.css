@@ -336,6 +336,7 @@ label { display: block; margin-bottom: 6px; color: var(--muted-strong); font-siz
 .banner { padding: 11px 14px; margin-bottom: 14px; border: 1px solid var(--line); border-radius: 11px; font-size: 12px; }
 .banner.bad { border-color: #ebc6c0; background: var(--bad-soft); color: #893a34; }
 .banner.warn { border-color: #ead3ad; background: var(--warn-soft); color: #81541c; }
+.banner.ok { border-color: #bfdac9; background: var(--ok-soft); color: var(--ok); }
 .issue { color: var(--bad); font-size: 12px; }
 .warn, .warnline { color: var(--warn); font-size: 12px; }
 .empty { padding: 45px 18px; color: var(--muted); text-align: center; }
@@ -456,6 +457,7 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
 .phone-console { display: grid; grid-template-columns: minmax(280px, .8fr) minmax(360px, 1.2fr); gap: 24px; }
 .phone-preview { min-width: 0; }
 .phone-screen { display: block; width: auto; max-width: 100%; height: min(580px, 65vh); margin: 0 auto 12px; border: 8px solid #202722; border-radius: 25px; object-fit: contain; background: #202722; box-shadow: 0 14px 32px rgba(20,30,24,.18); }
+.phone-screen { cursor: pointer; touch-action: none; user-select: none; -webkit-user-drag: none; }
 .compact-toggle { padding: 0; margin: 0; }
 .phone-controls { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .phone-controls h3 { margin: 5px 0 0; }
@@ -678,4 +680,15 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; }
+}
+
+/* Creative lab: post the result to Instagram through a phone */
+.post-via-phone { margin-top: 24px; }
+.post-via-phone h2 { margin-top: 7px; font-size: 24px; }
+.post-via-phone-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 16px; margin-top: 16px; }
+.post-via-phone-grid .field:last-child { grid-column: 1 / -1; }
+.post-via-phone-grid select, .post-via-phone-grid input, .post-via-phone-grid textarea { width: 100%; }
+.post-via-phone-status { display: grid; gap: 10px; margin-top: 14px; }
+@media (max-width: 720px) {
+  .post-via-phone-grid { grid-template-columns: 1fr; }
 }

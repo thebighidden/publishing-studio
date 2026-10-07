@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import io
 import random
 import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Optional
+
+from PIL import Image
 
 
 class DeviceError(RuntimeError):
@@ -131,6 +134,12 @@ class DeviceDriver(ABC):
     @abstractmethod
     def screen_state(self) -> ScreenState: ...
 
+    def live_frame(self) -> "Image.Image":
+        """One frame for the live screen view. Read-only, so it is safe to call
+        while a run is driving the phone. Drivers may override with something
+        faster than a full PNG round trip."""
+        return Image.open(io.BytesIO(self.screenshot()))
+
     @abstractmethod
     def tap(self, target: str) -> TapResult: ...
 
@@ -162,12 +171,24 @@ class DeviceDriver(ABC):
         deadline = time.monotonic() + timeout
         last = None
         while time.monotonic() < deadline:
-            state = self.screen_state()
+            try:
+                state = self.screen_state()
+            except DeviceError:
+                # The screen could not be read this time (a busy screen can
+                # defeat uiautomator); that is "not seen yet", not an answer.
+                time.sleep(interval)
+                continue
             node = resolve(target, state.nodes)
             if node is not None:
                 return node
             last = state
             time.sleep(interval)
+        return None
+
+    def focused_input(self) -> Optional[dict]:
+        """Focus as the keyboard sees it: {"package", "hint"} of the field it is
+        serving in the app in front, or None. For apps that leave their text
+        fields out of the UI dump. Drivers without such a source return None."""
         return None
 
     def close(self) -> None:  # pragma: no cover - most drivers are stateless

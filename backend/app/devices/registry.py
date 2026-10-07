@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from ..models import DriverKind, Phone
-from .adb import AdbDriver, adb_available, connect_wireless, list_devices
+from .adb import AdbDriver, adb_available, connect_wireless, list_devices, pair_wireless
 from .base import DeviceDriver, DeviceError, DeviceInfo
 from .simulator import SimulatorDriver
 
@@ -14,6 +14,7 @@ __all__ = [
     "discover",
     "driver_for",
     "list_devices",
+    "pair_wireless",
 ]
 
 

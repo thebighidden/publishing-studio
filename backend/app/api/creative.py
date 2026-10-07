@@ -2,18 +2,22 @@ from __future__ import annotations
 
 import io
 import uuid
-from typing import Any
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from PIL import Image, UnidentifiedImageError
+from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
+from ..agents import specs
 from ..config import MEDIA_DIR
 from ..db import get_session
-from ..models import MediaAsset, MediaKind, ProviderKind
+from ..models import Account, MediaAsset, MediaKind, Phone, Platform, Post, PostStatus, ProviderKind, utcnow
 from ..providers import registry
 from ..providers.base import ProviderError
-from ..publishing import events
+from ..publishing import events, runner
+from ..publishing.scheduler import scheduler
+from .runs import publish_now
 
 router = APIRouter(prefix="/api/creative", tags=["creative"])
 
@@ -180,3 +184,105 @@ def generate(
         model=asset.model,
     )
     return _asset_out(asset)
+
+
+class QuickPostIn(BaseModel):
+    # Either an existing account, or a phone plus the Instagram handle signed in on it.
+    account_id: Optional[str] = None
+    phone_id: Optional[str] = None
+    handle: Optional[str] = Field(default=None, max_length=30)
+    caption: str = Field(default="", max_length=2200)
+    hashtags: list[str] = Field(default_factory=list)
+
+
+def _account_for(session: Session, body: QuickPostIn) -> Account:
+    if body.account_id:
+        account = session.get(Account, body.account_id)
+        if account is None:
+            raise HTTPException(404, "account not found")
+        return account
+
+    if not body.phone_id or not (body.handle or "").strip().lstrip("@"):
+        raise HTTPException(422, "choose a phone and enter the Instagram handle signed in on it")
+    phone = session.get(Phone, body.phone_id)
+    if phone is None:
+        raise HTTPException(404, "phone not found")
+    handle = body.handle.strip().lstrip("@")
+    on_phone = session.exec(
+        select(Account).where(Account.platform == Platform.instagram, Account.phone_id == phone.id)
+    ).first()
+    if on_phone is not None and on_phone.handle != handle:
+        # One Instagram account per phone: the app posts as whoever is signed in there.
+        raise HTTPException(409, f"{phone.name} is already linked to @{on_phone.handle}; change that in Settings → Accounts")
+    account = session.exec(
+        select(Account).where(Account.platform == Platform.instagram, Account.handle == handle)
+    ).first()
+    if account is None:
+        # Not marked logged in: that flag is only ever set by reading the phone's screen.
+        account = Account(platform=Platform.instagram, handle=handle, phone_id=phone.id, logged_in=False,
+                          notes="added from Creative lab")
+    elif account.phone_id != phone.id:
+        account.phone_id = phone.id
+    session.add(account)
+    session.flush()
+    return account
+
+
+@router.post("/assets/{asset_id}/publish", status_code=202)
+def publish_asset(asset_id: str, body: QuickPostIn, session: Session = Depends(get_session)) -> dict[str, Any]:
+    """Post one lab asset to an account's feed through its phone, right after generating it.
+
+    The operator pressing Post with the image and caption in front of them is the human
+    approval (gate 6B) for this single post, so it is recorded as approved now. Everything
+    after that is the normal path: spec check, the runner's preflight guards (linked phone,
+    phone booking, account cooldown), then a phone run whose outcome needs evidence.
+    """
+    if scheduler.is_paused():
+        raise HTTPException(409, "publishing is paused; resume it first")
+    asset = session.get(MediaAsset, asset_id)
+    if asset is None:
+        raise HTTPException(404, "asset not found")
+    if (asset.meta or {}).get("simulated"):
+        raise HTTPException(409, "this is an offline placeholder, not real content; generate it with a real provider first")
+    account = _account_for(session, body)
+
+    hashtags = [tag.strip().lstrip("#") for tag in body.hashtags if tag.strip().lstrip("#")]
+    report = specs.check(
+        account.platform,
+        "feed",
+        caption=body.caption.strip(),
+        hashtags=hashtags,
+        media_kind=asset.kind,
+        width=asset.width,
+        height=asset.height,
+        duration_s=asset.duration_s,
+    )
+    if not report.ok:
+        session.rollback()
+        raise HTTPException(422, "; ".join(report.issues))
+
+    now = utcnow()
+    post = Post(
+        account_id=account.id,
+        platform=account.platform,
+        title=f"Creative lab: {(asset.prompt or '').strip()[:60]}",
+        caption=body.caption.strip(),
+        hashtags=hashtags,
+        media_id=asset.id,
+        placement="feed",
+        status=PostStatus.approved,
+        approved_at=now,
+        spec_check=report.to_dict(),
+    )
+    # Check the guards before saving, so a refusal (no phone, phone busy, cooldown) leaves nothing behind.
+    try:
+        runner.preflight(session, post)
+    except runner.NotPublishable as exc:
+        session.rollback()
+        raise HTTPException(409, str(exc)) from exc
+    session.add(post)
+    session.commit()
+    session.refresh(post)
+
+    publish_now(post_id=post.id, session=session)
+    return {"post_id": post.id, "account": account.handle}

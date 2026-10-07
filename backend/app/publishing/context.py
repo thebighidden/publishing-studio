@@ -132,10 +132,15 @@ class RunContext:
         def run() -> str:
             deadline = time.monotonic() + timeout
             field = self._focused_field()
-            while field is None and time.monotonic() < deadline:
-                time.sleep(0.4)
-                field = self._focused_field()
-            if field is None:
+            keyboard = None
+            while field is None and keyboard is None and time.monotonic() < deadline:
+                # Some apps leave the field out of the UI dump; the keyboard
+                # serving a field in the app in front is the other proof of focus.
+                keyboard = self.driver.focused_input()
+                if keyboard is None:
+                    time.sleep(0.4)
+                    field = self._focused_field()
+            if field is None and keyboard is None:
                 raise DeviceError(
                     f"{target} was tapped but no field took focus within {timeout:.0f}s; "
                     "refusing to type into nowhere"
@@ -144,6 +149,14 @@ class RunContext:
             delivered = self.driver.type_text(text)
 
             after = self._focused_field()
+            if after is None and keyboard is not None:
+                # No readback is possible without the field in the dump. Say so
+                # rather than claim it; verification checks the published caption.
+                return (
+                    f"{len(delivered)} chars into the {keyboard['package']} field the keyboard "
+                    f"was serving (hint {keyboard['hint']!r}); the app hides that field from "
+                    "the UI dump, so readback is left to verification"
+                )
             landed = (after.text or "") if after else ""
             if not landed.strip():
                 raise DeviceError(

@@ -4,12 +4,15 @@ import os
 import posixpath
 import re
 import shutil
+import struct
 import subprocess
 import time
 import unicodedata
 import uuid
 from typing import Optional
 from xml.etree import ElementTree
+
+from PIL import Image
 
 from ..config import ADB_PATH
 from .base import (
@@ -76,8 +79,22 @@ def list_devices() -> list[DeviceInfo]:
 
 
 def connect_wireless(host_port: str) -> str:
-    """adb connect 192.168.1.42:5555 — for a phone on the same Wi-Fi."""
-    return _run(["connect", host_port], timeout=20).strip()
+    """adb connect 192.168.1.42:5555 — for a phone on the same Wi-Fi.
+
+    adb can exit 0 while printing "failed to connect", so the text decides."""
+    out = _run(["connect", host_port], timeout=20).strip()
+    if not out.lower().startswith(("connected to", "already connected to")):
+        raise DeviceError(out or f"could not connect to {host_port}")
+    return out
+
+
+def pair_wireless(host_port: str, code: str) -> str:
+    """adb pair — Android 11+ wireless debugging needs this once per computer.
+    The pairing port differs from the one `connect` uses afterwards."""
+    out = _run(["pair", host_port, code], timeout=30).strip()
+    if "successfully paired" not in out.lower():
+        raise DeviceError(out or f"could not pair with {host_port}")
+    return out
 
 
 class AdbDriver(DeviceDriver):
@@ -136,6 +153,17 @@ class AdbDriver(DeviceDriver):
             raise DeviceError("screencap did not return a PNG")
         return png
 
+    def live_frame(self) -> Image.Image:
+        """Raw screencap skips the on-device PNG encode, which dominates frame
+        time over USB. Raw frames are ~10 MB though, so wireless links (serials
+        with a host:port or an mDNS name) stay on PNG."""
+        if ":" not in self.serial and "._adb" not in self.serial:
+            raw = self._adb("exec-out", "screencap", timeout=20, binary=True)
+            img = _decode_raw_screencap(raw)
+            if img is not None:
+                return img
+        return super().live_frame()
+
     def screen_state(self) -> ScreenState:
         xml = self._dump_window_xml()
         nodes = _parse_hierarchy(xml)
@@ -147,11 +175,19 @@ class AdbDriver(DeviceDriver):
         last_err = None
         for _ in range(3):
             try:
-                self._shell("uiautomator", "dump", remote, timeout=45)
-                xml = self._adb("exec-out", "cat", remote, timeout=30)
-                if "<hierarchy" in xml:
-                    return xml
-                last_err = "dump produced no hierarchy"
+                # A failed dump ("could not get idle state", "null root node")
+                # exits 0 and leaves the previous file in place. Reading that back
+                # would describe a screen that is no longer showing, so remove it
+                # first and only trust a dump that reports it was written.
+                self._shell("rm", "-f", remote)
+                out = self._shell("uiautomator", "dump", remote, timeout=45)
+                if "dumped to" not in out:
+                    last_err = out.strip() or "uiautomator wrote no dump"
+                else:
+                    xml = self._adb("exec-out", "cat", remote, timeout=30)
+                    if "<hierarchy" in xml:
+                        return xml
+                    last_err = "dump produced no hierarchy"
             except DeviceError as exc:
                 last_err = str(exc)
             time.sleep(1.0)
@@ -170,6 +206,23 @@ class AdbDriver(DeviceDriver):
         except DeviceError:
             pass
         return "", ""
+
+    def focused_input(self) -> Optional[dict]:
+        """Instagram 448 leaves its caption field out of the UI dump, so the
+        hierarchy cannot show focus. The input method service still knows which
+        field the keyboard is serving; trust it only while the keyboard is up
+        and that field belongs to the app in front."""
+        try:
+            out = self._shell("dumpsys", "input_method", timeout=20)
+        except DeviceError:
+            return None
+        if "mInputShown=true" not in out:
+            return None
+        front, _ = self._current_activity()
+        for hint, package in re.findall(r"hintText=(.*?) label=.*?\n\s*packageName=([\w.]+)", out):
+            if front and package == front:
+                return {"package": package, "hint": hint.strip()}
+        return None
 
     # ---------------- actions ----------------
 
@@ -302,6 +355,33 @@ def _parse_hierarchy(xml: str) -> list[UiNode]:
             )
         )
     return nodes
+
+
+# android.graphics.PixelFormat -> (Pillow raw mode, bytes per pixel)
+_RAW_FORMATS = {
+    1: ("RGBX", 4),  # RGBA_8888, alpha is meaningless for a screen
+    2: ("RGBX", 4),  # RGBX_8888
+    3: ("RGB", 3),  # RGB_888
+    4: ("BGR;16", 2),  # RGB_565
+    5: ("BGRX", 4),  # BGRA_8888
+}
+
+
+def _decode_raw_screencap(raw: bytes) -> Optional[Image.Image]:
+    """`screencap` without -p: a little-endian header (width, height, format,
+    plus a colour-space word on Android 9+) followed by pixels. Anything that
+    does not add up returns None so the caller can fall back to PNG."""
+    if len(raw) < 12:
+        return None
+    w, h, fmt = struct.unpack_from("<III", raw)
+    spec = _RAW_FORMATS.get(fmt)
+    if spec is None or not w or not h:
+        return None
+    rawmode, bpp = spec
+    header = len(raw) - w * h * bpp
+    if header not in (12, 16):
+        return None
+    return Image.frombuffer("RGB", (w, h), raw[header:], "raw", rawmode, 0, 1)
 
 
 def _ascii_safe(text: str) -> str:

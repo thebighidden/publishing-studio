@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from typing import Any, Optional
 
 from ..config import DATA_DIR
-from .base import TargetNotFound, UiNode
+from .base import Bounds, TargetNotFound, UiNode
 
 OVERRIDES_PATH = DATA_DIR / "targets.json"
 
@@ -12,7 +13,19 @@ OVERRIDES_PATH = DATA_DIR / "targets.json"
 # their resource ids between releases, so every target carries fallbacks and
 # teams can recalibrate from the UI without touching code.
 #
-# selector keys:  id | text | desc | cls | clickable | exact | nth
+# selector keys:  id | text | desc | cls | clickable | exact | nth | zone
+#
+#                 | box
+#
+# zone is [left, top, right, bottom] as fractions of the screen, and the node's
+# centre must fall inside it. It is for controls that carry no id, text or
+# description; the tap still goes to a random point inside the matched node.
+#
+# box is [left, top, right, bottom] as fractions of the matched node, and the
+# target becomes that part of it. It is for controls missing from the UI dump
+# altogether, located inside a container that is in the dump. Calibrate it per
+# app build and screen shape; the selector only applies while that container
+# is on screen.
 DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
     # ---------------- Instagram (com.instagram.android) ----------------
     # Verified against Instagram 450.0.0.50.77 on Android 15.
@@ -26,6 +39,10 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "creation_tab"},
         {"desc": "New post", "exact": False},
         {"desc": "Create", "exact": True},
+        # Instagram 448.0.0.52.84 on a Pixel 7a (Android 16): the "+" at the
+        # top-left of the home action bar is an ImageView with no id and no
+        # description, so only its place in the action bar identifies it.
+        {"cls": "android.widget.ImageView", "clickable": True, "zone": [0, 0, 0.18, 0.13]},
     ],
     "instagram.gallery_first_item": [
         {"id": "gallery_grid_item", "nth": 0},
@@ -50,12 +67,21 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "next_button_imageview"},
         {"text": "Next", "exact": True},
         {"desc": "Next", "exact": True},
+        # Instagram 448 photo editor (Audio / Text / Overlay / Filter / Edit /
+        # Ratio): its Next button never appears in the UI dump, so it is the
+        # bottom-right of the editor's full-screen container. Calibrated on a
+        # Pixel 7a, 1080x2400.
+        {"id": "quick_edit_compose_view", "box": [0.81, 0.94, 0.97, 0.985]},
     ],
     "instagram.caption_field": [
         {"id": "caption_text_view"},
         {"id": "caption_input_text_view"},
         {"text": "Write a caption", "exact": False},
         {"cls": "android.widget.EditText", "nth": 0},
+        # Instagram 448 share screen: the caption row is often missing from the
+        # UI dump while the screen's own container is present, so it is located
+        # inside that container. Calibrated on a Pixel 7a, 1080x2400.
+        {"id": "followers_share_content", "box": [0.05, 0.38, 0.95, 0.43]},
     ],
     "instagram.share": [
         {"id": "share_footer_button"},
@@ -158,9 +184,25 @@ def save_overrides(data: dict[str, list[dict[str, Any]]]) -> None:
     OVERRIDES_PATH.write_text(json.dumps(data, indent=2), encoding="utf-8")
 
 
-def _matches(node: UiNode, sel: dict[str, Any]) -> bool:
+def _extent(nodes: list[UiNode]) -> tuple[int, int]:
+    """Screen size, taken from the furthest edges the UI tree reaches."""
+    width = max((n.bounds.right for n in nodes if n.bounds), default=0)
+    height = max((n.bounds.bottom for n in nodes if n.bounds), default=0)
+    return width, height
+
+
+def _matches(node: UiNode, sel: dict[str, Any], screen: tuple[int, int] = (0, 0)) -> bool:
     if not node.bounds or node.bounds.area <= 0:
         return False
+    if "zone" in sel:
+        width, height = screen
+        if not width or not height:
+            return False
+        left, top, right, bottom = sel["zone"]
+        cx = (node.bounds.left + node.bounds.right) / 2 / width
+        cy = (node.bounds.top + node.bounds.bottom) / 2 / height
+        if not (left <= cx <= right and top <= cy <= bottom):
+            return False
     if sel.get("clickable") and not node.clickable:
         return False
     exact = sel.get("exact", False)
@@ -197,29 +239,50 @@ def _matches(node: UiNode, sel: dict[str, Any]) -> bool:
 def resolve(target: str, nodes: list[UiNode]) -> Optional[UiNode]:
     """Resolve a *name* to a node on the current screen. No coordinates ever
     cross the wire from the caller."""
+    screen = _extent(nodes)
     for sel in catalog().get(target, []):
-        hits = [n for n in nodes if _matches(n, sel)]
+        hits = [n for n in nodes if _matches(n, sel, screen)]
         if not hits:
             continue
         nth = sel.get("nth")
         if nth is not None:
             if nth < len(hits):
-                return hits[nth]
+                return _within(hits[nth], sel)
             continue
         # unambiguous selectors should match one node; prefer the smallest
         # tappable box, which is almost always the control rather than its
         # container.
         hits.sort(key=lambda n: (not n.clickable, n.bounds.area if n.bounds else 0))
-        return hits[0]
+        return _within(hits[0], sel)
     return None
+
+
+def _within(node: UiNode, sel: dict[str, Any]) -> UiNode:
+    """Narrow a container node to the `box` part of it, when the selector has one."""
+    if "box" not in sel:
+        return node
+    left, top, right, bottom = sel["box"]
+    b = node.bounds
+    width, height = b.right - b.left, b.bottom - b.top
+    return replace(
+        node,
+        clickable=True,
+        bounds=Bounds(
+            left=b.left + round(width * left),
+            top=b.top + round(height * top),
+            right=b.left + round(width * right),
+            bottom=b.top + round(height * bottom),
+        ),
+    )
 
 
 def resolve_all(target: str, nodes: list[UiNode]) -> list[UiNode]:
     """Every node the first productive selector matches. Used to count things
     on screen, such as how many posts a profile grid is showing."""
+    screen = _extent(nodes)
     for sel in catalog().get(target, []):
         probe = {k: v for k, v in sel.items() if k != "nth"}
-        hits = [n for n in nodes if _matches(n, probe)]
+        hits = [n for n in nodes if _matches(n, probe, screen)]
         if hits:
             return hits
     return []

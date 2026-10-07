@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, useResource } from "../api.js";
 import { Banner, Empty, Field, Modal, Tag, ago, useAction } from "../ui.jsx";
 
@@ -46,11 +46,25 @@ function Phones() {
   const { data: discovered, reload: rediscover } = useResource("/api/phones/discover");
   const [adding, setAdding] = useState(false);
   const [hostPort, setHostPort] = useState("");
+  const [pairPort, setPairPort] = useState("");
+  const [pairCode, setPairCode] = useState("");
+  const [notice, setNotice] = useState("");
   const { busy, error, run } = useAction();
+
+  const pair = () =>
+    run(async () => {
+      setNotice("");
+      const res = await api.post("/api/phones/pair", { host_port: pairPort.trim(), code: pairCode.trim() });
+      setNotice(`${res.detail} — now connect with the address on the main Wireless debugging screen.`);
+      setPairPort("");
+      setPairCode("");
+    });
 
   const connect = () =>
     run(async () => {
-      await api.post("/api/phones/connect", { host_port: hostPort });
+      setNotice("");
+      const res = await api.post("/api/phones/connect", { host_port: hostPort.trim() });
+      setNotice(`${res.detail} — click Add next to it below.`);
       setHostPort("");
       rediscover();
     });
@@ -71,6 +85,9 @@ function Phones() {
               {discovered.adb_available
                 ? "adb is installed and answering"
                 : "adb is not installed — the simulator still works end to end"}
+              {discovered.adb_available && (discovered.scrcpy_available
+                ? " · fast live view (scrcpy) ready"
+                : " · live view uses screenshots — install scrcpy for smooth video: winget install Genymobile.scrcpy")}
             </div>
             <div className="stack" style={{ marginTop: 8 }}>
               {!(discovered.adb || []).length && (
@@ -89,14 +106,36 @@ function Phones() {
                 </div>
               ))}
             </div>
-            <div className="row" style={{ marginTop: 12 }}>
+            {notice && <div className="banner ok" style={{ marginTop: 12 }}>{notice}</div>}
+            <div className="small muted" style={{ marginTop: 12 }}>
+              Wi-Fi (Android 11+): Developer options → Wireless debugging → <b>Pair device with pairing code</b>.
+              Pair once with that address and code, then connect with the <b>IP address &amp; Port</b> on the main
+              Wireless debugging screen — it uses a different port.
+            </div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <input
+                value={pairPort}
+                onChange={(e) => setPairPort(e.target.value)}
+                placeholder="Pairing address, e.g. 192.168.1.42:37123"
+                style={{ flex: 2 }}
+              />
+              <input
+                value={pairCode}
+                onChange={(e) => setPairCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                placeholder="6-digit code"
+                inputMode="numeric"
+                style={{ flex: 1 }}
+              />
+              <button onClick={pair} disabled={busy || !pairPort || pairCode.length !== 6}>1. Pair</button>
+            </div>
+            <div className="row" style={{ marginTop: 8 }}>
               <input
                 value={hostPort}
                 onChange={(e) => setHostPort(e.target.value)}
-                placeholder="192.168.1.42:5555"
+                placeholder="Connect address, e.g. 192.168.1.42:41567"
                 style={{ flex: 1 }}
               />
-              <button onClick={connect} disabled={busy || !hostPort}>Connect over Wi-Fi</button>
+              <button onClick={connect} disabled={busy || !hostPort}>2. Connect over Wi-Fi</button>
             </div>
           </>
         )}
@@ -188,7 +227,10 @@ function PhoneControl({ phone, onClose }) {
   const [state, setState] = useState(null);
   const [text, setText] = useState("");
   const [target, setTarget] = useState("");
-  const [live, setLive] = useState(false);
+  const [live, setLive] = useState(true);
+  const [streamKey, setStreamKey] = useState(0);
+  const [streamLost, setStreamLost] = useState(false);
+  const screenRef = useRef(null);
   const { data: targets } = useResource("/api/phones/targets");
   const { busy, error, run } = useAction();
 
@@ -205,16 +247,82 @@ function PhoneControl({ phone, onClose }) {
     refresh();
   }, [phone.id]);
 
+  // The video comes from the MJPEG stream; the UI tree is a slow uiautomator
+  // dump on real hardware, so it is polled separately and much less often.
   useEffect(() => {
     if (!live) return undefined;
-    const timer = setInterval(refresh, 2000);
+    const timer = setInterval(refresh, 5000);
     return () => clearInterval(timer);
   }, [live, phone.id]);
+
+  useEffect(() => {
+    if (!streamLost || !live) return undefined;
+    const timer = setTimeout(() => {
+      setStreamLost(false);
+      setStreamKey((k) => k + 1);
+    }, 3000);
+    return () => clearTimeout(timer);
+  }, [streamLost, live]);
+
+  // Chrome can keep an MJPEG request open after the <img> is gone; blanking
+  // the src closes it so the backend stops capturing. Only blank once the
+  // element is really detached: StrictMode runs a fake cleanup on mount while
+  // the image is still on screen, and blanking then killed the first stream.
+  useEffect(() => {
+    const img = screenRef.current;
+    return () => {
+      setTimeout(() => {
+        if (img && !img.isConnected) img.src = "data:,";
+      }, 0);
+    };
+  }, [live, streamKey]);
+
+  const screenSrc = live
+    ? `/api/phones/${phone.id}/stream?k=${streamKey}`
+    : `/api/phones/${phone.id}/screenshot?t=${stamp}`;
 
   const act = (path, body = {}) => run(async () => {
     await api.post(`/api/phones/${phone.id}/${path}`, body);
     await refresh();
   });
+
+  // Touches on the picture itself. In live view the stream already shows the
+  // result, so skip the slow UI-tree refresh that would otherwise hold `busy`
+  // for seconds and swallow the next tap.
+  const remote = (path, body) => run(async () => {
+    await api.post(`/api/phones/${phone.id}/${path}`, body);
+    if (!live) await refresh();
+  });
+
+  const gesture = useRef(null);
+
+  const onScreenDown = (e) => {
+    if (e.button !== 0 || busy) return;
+    const at = screenFraction(e.currentTarget, e.clientX, e.clientY);
+    if (!at) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    gesture.current = { at, clientX: e.clientX, clientY: e.clientY, t: performance.now() };
+  };
+
+  const onScreenUp = (e) => {
+    const start = gesture.current;
+    gesture.current = null;
+    if (!start) return;
+    const held = Math.round(performance.now() - start.t);
+    const moved = Math.hypot(e.clientX - start.clientX, e.clientY - start.clientY);
+    if (moved < 8) {
+      const { x, y, landscape } = start.at;
+      remote("touch", { x, y, landscape, hold_ms: held >= 500 ? Math.min(held, 3000) : 0 });
+      return;
+    }
+    const end = screenFraction(e.currentTarget, e.clientX, e.clientY, true);
+    remote("drag", {
+      x1: start.at.x, y1: start.at.y, x2: end.x, y2: end.y,
+      landscape: start.at.landscape,
+      duration_ms: Math.max(80, Math.min(held, 2000)),
+    });
+  };
 
   const sendText = () => act("type", { text }).then(() => setText(""));
   const targetNames = targets?.targets || [];
@@ -223,12 +331,28 @@ function PhoneControl({ phone, onClose }) {
     <Modal title={`${phone.name} — device control`} onClose={onClose}>
       <div className="phone-console">
         <div className="phone-preview">
-          <img className="phone-screen" src={`/api/phones/${phone.id}/screenshot?t=${stamp}`} alt={`${phone.name} screen`} />
+          <img
+            key={live ? `live-${streamKey}` : "still"}
+            ref={screenRef}
+            className="phone-screen"
+            src={screenSrc}
+            alt={`${phone.name} screen`}
+            onError={(e) => live && e.currentTarget.isConnected && setStreamLost(true)}
+            onPointerDown={onScreenDown}
+            onPointerUp={onScreenUp}
+            onPointerCancel={() => { gesture.current = null; }}
+            onDragStart={(e) => e.preventDefault()}
+            draggable={false}
+          />
+          {live && streamLost && <div className="small muted" style={{ textAlign: "center" }}>Screen stream lost — reconnecting…</div>}
+          <div className="small muted" style={{ textAlign: "center" }}>
+            Click to tap · drag to swipe · hold to long-press
+          </div>
           <div className="row" style={{ justifyContent: "center" }}>
-            <button className="small" onClick={refresh}>Refresh screen</button>
+            <button className="small" onClick={refresh} disabled={live}>Refresh screen</button>
             <label className="inline-field compact-toggle">
-              <input type="checkbox" checked={live} onChange={(e) => setLive(e.target.checked)} />
-              Live refresh
+              <input type="checkbox" checked={live} onChange={(e) => { setLive(e.target.checked); setStamp(Date.now()); }} />
+              Live view
             </label>
           </div>
         </div>
@@ -289,6 +413,33 @@ function PhoneControl({ phone, onClose }) {
       </div>
     </Modal>
   );
+}
+
+/**
+ * Where a pointer sits on the phone picture, as fractions of the frame.
+ * The <img> has a border and object-fit: contain, so the drawn picture can be
+ * smaller than the element; map against the picture, not the box. Returns null
+ * outside it unless `clamp` is set (a drag may end past the edge).
+ */
+function screenFraction(img, clientX, clientY, clamp = false) {
+  const nw = img.naturalWidth;
+  const nh = img.naturalHeight;
+  if (!nw || !nh) return null;
+  const rect = img.getBoundingClientRect();
+  const cw = img.clientWidth;
+  const ch = img.clientHeight;
+  const scale = Math.min(cw / nw, ch / nh);
+  const left = rect.left + img.clientLeft + (cw - nw * scale) / 2;
+  const top = rect.top + img.clientTop + (ch - nh * scale) / 2;
+  let x = (clientX - left) / (nw * scale);
+  let y = (clientY - top) / (nh * scale);
+  if (clamp) {
+    x = Math.min(1, Math.max(0, x));
+    y = Math.min(1, Math.max(0, y));
+  } else if (x < 0 || x > 1 || y < 0 || y > 1) {
+    return null;
+  }
+  return { x, y, landscape: nw > nh };
 }
 
 function PhoneModal({ preset, onClose, onSaved }) {

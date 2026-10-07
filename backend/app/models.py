@@ -33,6 +33,7 @@ class ProviderAdapter(str, Enum):
     higgsfield = "higgsfield"
     openai_compat = "openai_compat"
     anthropic = "anthropic"
+    comfyui = "comfyui"
     simulated = "simulated"
 
 

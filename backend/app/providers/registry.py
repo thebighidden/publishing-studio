@@ -7,6 +7,8 @@ from sqlmodel import Session, select
 from ..crypto import decrypt
 from ..models import ProviderAdapter, ProviderConfig, ProviderKind
 from .anthropic import AnthropicText
+from .comfyui import WORKFLOWS as COMFYUI_WORKFLOWS
+from .comfyui import ComfyUIImage
 from .base import (
     ImageProvider,
     MediaResult,
@@ -67,6 +69,11 @@ def build(cfg: ProviderConfig):
         if cfg.kind != ProviderKind.text:
             raise NotConfigured("the Anthropic adapter is text only")
         return AnthropicText(key, cfg.base_url or "", cfg.model or "", opts)
+
+    if cfg.adapter == ProviderAdapter.comfyui:
+        if cfg.kind != ProviderKind.image:
+            raise NotConfigured("the ComfyUI adapter generates images only")
+        return ComfyUIImage(cfg.base_url or "", cfg.model or "", opts)
 
     if cfg.adapter == ProviderAdapter.openai_compat:
         if cfg.kind == ProviderKind.text:
@@ -198,6 +205,19 @@ CATALOG = [
             "Point this at your own DGX. A vLLM, TGI or Ollama server exposing "
             "/v1/chat/completions or /v1/images/generations works unchanged — set the "
             "base URL to the host and leave the key blank if it is open."
+        ),
+    },
+    {
+        "adapter": "comfyui",
+        "label": "ComfyUI server (local models)",
+        "kinds": ["image"],
+        "key_hint": "no key needed",
+        "base_url": "http://172.17.215.206:8188",
+        "models": {"image": list(COMFYUI_WORKFLOWS)},
+        "note": (
+            "Runs an exported ComfyUI workflow on your own GPU server. The model field names "
+            "the workflow. z_image_turbo is text-to-image only: generate without a reference "
+            "image. Start ComfyUI with --listen so the studio can reach it."
         ),
     },
     {

@@ -1,18 +1,43 @@
 from __future__ import annotations
 
+import asyncio
+import io
+import logging
+import threading
+import time
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi.responses import StreamingResponse
+from starlette.background import BackgroundTask
+from PIL import Image
 from sqlmodel import Session, select
 
 from ..devices import registry as devices
-from ..devices.base import DeviceError, UiNode
+from ..devices import remote, scrcpy
+from ..devices.adb import AdbDriver
+from ..devices.base import DeviceDriver, DeviceError, UiNode
 from ..devices.targets import known_targets
-from ..db import get_session
+from ..db import get_session, session_scope
 from ..models import Account, Phone, utcnow
-from .schemas import AppIn, KeyIn, PhoneIn, PhoneUpdate, SwipeIn, TapIn, TypeIn, WirelessConnect
+from .schemas import (
+    AppIn,
+    DragIn,
+    KeyIn,
+    PhoneIn,
+    PhoneUpdate,
+    SwipeIn,
+    TapIn,
+    TouchIn,
+    TypeIn,
+    WirelessConnect,
+    WirelessPair,
+)
 
 router = APIRouter(prefix="/api/phones", tags=["phones"])
+
+_STREAM_MAX_FAILURES = 5
+log = logging.getLogger(__name__)
 
 
 def _node(n: UiNode) -> dict[str, Any]:
@@ -66,6 +91,7 @@ def discover() -> dict:
     """Everything that could be attached right now, plus the simulator option."""
     found = devices.discover()
     found["simulator_available"] = True
+    found["scrcpy_available"] = scrcpy.available()
     return found
 
 
@@ -82,6 +108,15 @@ def connect(body: WirelessConnect) -> dict:
     except DeviceError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"detail": detail, "devices": devices.discover()}
+
+
+@router.post("/pair")
+def pair(body: WirelessPair) -> dict:
+    try:
+        detail = devices.pair_wireless(body.host_port, body.code)
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"detail": detail}
 
 
 @router.get("")
@@ -144,6 +179,96 @@ def screenshot(phone_id: str, session: Session = Depends(get_session)) -> Respon
     return Response(content=png, media_type="image/png", headers={"Cache-Control": "no-store"})
 
 
+def _jpeg_frame(driver: DeviceDriver, max_h: int) -> bytes:
+    img = driver.live_frame()
+    if img.height > max_h:
+        img = img.resize((round(img.width * max_h / img.height), max_h), Image.BILINEAR)
+    buf = io.BytesIO()
+    img.convert("RGB").save(buf, "JPEG", quality=70)
+    return buf.getvalue()
+
+
+@router.get("/{phone_id}/stream")
+async def stream(
+    phone_id: str,
+    request: Request,
+    fps: float = Query(5.0, gt=0, le=15),
+    max_h: int = Query(960, ge=240, le=2400),
+) -> StreamingResponse:
+    """Live screen as MJPEG, which an <img> plays natively.
+
+    Watching is read-only, so unlike the controls it stays available while a
+    run holds the phone — that is exactly when it is most worth seeing. The
+    DB session is closed before streaming so a long-lived viewer holds nothing.
+    """
+    with session_scope() as session:
+        driver = devices.driver_for(_get(session, phone_id))
+    interval = 1.0 / fps
+
+    # Real phones get scrcpy's hardware H.264 stream when it is installed —
+    # ~30 fps instead of ~1 over Wi-Fi. Anything wrong with it falls back.
+    video = None
+    if isinstance(driver, AdbDriver) and scrcpy.available():
+        try:
+            video = await asyncio.to_thread(scrcpy.ScrcpySession.open, driver.serial, max_h)
+        except DeviceError as exc:
+            log.warning("scrcpy unavailable for %s, using screencap: %s", driver.serial, exc)
+
+    async def scrcpy_frames():
+        seq = 0
+        try:
+            while not await request.is_disconnected():
+                try:
+                    new_seq, jpg = await asyncio.to_thread(video.next_frame, seq, 1.0)
+                except DeviceError:
+                    return
+                if new_seq != seq:
+                    seq = new_seq
+                    yield _mjpeg_part(jpg)
+        finally:
+            # close() shells out to adb; keep it off the event loop.
+            threading.Thread(target=video.close, daemon=True).start()
+
+    async def screencap_frames():
+        failures = 0
+        while not await request.is_disconnected():
+            started = time.monotonic()
+            try:
+                jpg = await asyncio.to_thread(_jpeg_frame, driver, max_h)
+            except (DeviceError, OSError):
+                failures += 1
+                if failures >= _STREAM_MAX_FAILURES:
+                    return  # the browser fires onerror and the UI offers a retry
+                await asyncio.sleep(1.0)
+                continue
+            failures = 0
+            yield _mjpeg_part(jpg)
+            await asyncio.sleep(max(0.0, interval - (time.monotonic() - started)))
+
+    return StreamingResponse(
+        scrcpy_frames() if video else screencap_frames(),
+        media_type="multipart/x-mixed-replace; boundary=frame",
+        headers={
+            "Cache-Control": "no-store",
+            "X-Accel-Buffering": "no",
+            "X-Stream-Source": "scrcpy" if video else "screencap",
+        },
+        # Also covers a viewer that leaves before the first frame, when the
+        # generator above never starts and so never reaches its finally.
+        background=BackgroundTask(video.close) if video else None,
+    )
+
+
+def _mjpeg_part(jpg: bytes) -> bytes:
+    return (
+        b"--frame\r\nContent-Type: image/jpeg\r\nContent-Length: "
+        + str(len(jpg)).encode()
+        + b"\r\n\r\n"
+        + jpg
+        + b"\r\n"
+    )
+
+
 @router.get("/{phone_id}/state")
 def state(phone_id: str, session: Session = Depends(get_session)) -> dict:
     """The live UI hierarchy. This is what target calibration is read from."""
@@ -167,6 +292,33 @@ def tap(phone_id: str, body: TapIn, session: Session = Depends(get_session)) -> 
     except DeviceError as exc:
         raise HTTPException(502, str(exc)) from exc
     return {"target": result.target, "x": result.x, "y": result.y, "matched": result.matched}
+
+
+@router.post("/{phone_id}/touch")
+def touch(phone_id: str, body: TouchIn, session: Session = Depends(get_session)) -> dict:
+    """Operator taps on the live view. Recipes never come through here (R6)."""
+    phone = _free(_get(session, phone_id))
+    try:
+        x, y = remote.touch(devices.driver_for(phone), body.x, body.y, body.landscape, body.hold_ms)
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"x": x, "y": y, "hold_ms": body.hold_ms}
+
+
+@router.post("/{phone_id}/drag")
+def drag(phone_id: str, body: DragIn, session: Session = Depends(get_session)) -> dict:
+    phone = _free(_get(session, phone_id))
+    try:
+        remote.drag(
+            devices.driver_for(phone),
+            (body.x1, body.y1),
+            (body.x2, body.y2),
+            body.duration_ms,
+            body.landscape,
+        )
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    return {"duration_ms": body.duration_ms}
 
 
 @router.post("/{phone_id}/type")

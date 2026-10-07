@@ -72,6 +72,29 @@ class WirelessConnect(BaseModel):
     host_port: str = Field(description="e.g. 192.168.1.42:5555")
 
 
+class TouchIn(BaseModel):
+    """A point on the live view, as fractions of the frame."""
+
+    x: float = Field(ge=0, le=1)
+    y: float = Field(ge=0, le=1)
+    landscape: bool = False
+    hold_ms: int = Field(0, ge=0, le=3000, description="0 taps; more is a long press")
+
+
+class DragIn(BaseModel):
+    x1: float = Field(ge=0, le=1)
+    y1: float = Field(ge=0, le=1)
+    x2: float = Field(ge=0, le=1)
+    y2: float = Field(ge=0, le=1)
+    landscape: bool = False
+    duration_ms: int = Field(300, ge=50, le=3000)
+
+
+class WirelessPair(BaseModel):
+    host_port: str = Field(description="the pairing address, e.g. 192.168.1.42:37123")
+    code: str = Field(pattern=r"^\d{6}$", description="six-digit pairing code")
+
+
 class TapIn(BaseModel):
     target: str
 
