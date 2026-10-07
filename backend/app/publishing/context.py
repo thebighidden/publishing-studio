@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional
 
 from ..config import EVIDENCE_DIR, RUN_STEP_BUDGET, RUN_TIMEOUT_SECONDS
-from ..devices.base import DeviceDriver, DeviceError, ScreenState, TapResult
+from ..devices.base import DeviceDriver, DeviceError, ScreenState, TapResult, UiNode
 
 
 class BudgetExceeded(RuntimeError):
@@ -100,6 +100,71 @@ class RunContext:
             return note
 
         return self._do("type", lambda: self.driver.type_text(text), detail)
+
+    # Fields that accept typing. AutoCompleteTextView backs most search and
+    # caption boxes and is not an EditText subclass by name.
+    _EDITABLE = ("edittext", "autocompletetextview", "textinputedittext")
+
+    def _focused_field(self) -> Optional[UiNode]:
+        """The field keystrokes would currently land in, or None."""
+        try:
+            nodes = self.driver.screen_state().nodes
+        except DeviceError:
+            return None
+        for n in nodes:
+            cls = (n.cls or "").lower()
+            if n.focused and any(e in cls for e in self._EDITABLE):
+                return n
+        return None
+
+    def type_into(self, target: str, text: str, timeout: float = 8.0) -> str:
+        """Tap a field, wait until it really has focus, type, then read it back.
+
+        A flat sleep between tap and type is the quiet way to lose a caption.
+        On a cold app start the field is not focused yet, so `input text` goes
+        nowhere and the post publishes empty — and an empty caption still grows
+        the profile grid, so the mistake survives all the way to verification
+        and surfaces only as an unexplained token mismatch. Waiting on observed
+        focus turns that into a precise, early failure.
+        """
+        self.tap(target)
+
+        def run() -> str:
+            deadline = time.monotonic() + timeout
+            field = self._focused_field()
+            while field is None and time.monotonic() < deadline:
+                time.sleep(0.4)
+                field = self._focused_field()
+            if field is None:
+                raise DeviceError(
+                    f"{target} was tapped but no field took focus within {timeout:.0f}s; "
+                    "refusing to type into nowhere"
+                )
+
+            delivered = self.driver.type_text(text)
+
+            after = self._focused_field()
+            landed = (after.text or "") if after else ""
+            if not landed.strip():
+                raise DeviceError(
+                    f"typed {len(delivered)} chars into {target} but the field is "
+                    "still empty — the text did not reach the device"
+                )
+            note = f"{len(delivered)} chars"
+            if delivered != text:
+                note += f" (adb input is ASCII only; {len(text) - len(delivered)} dropped)"
+            # Long captions get ellipsized or scrolled in the node text, so a
+            # prefix match is the most we can honestly assert here. Verification
+            # is still what decides the run.
+            head = delivered[:20]
+            if head and head.lower() not in landed.lower():
+                note += f"; readback differs (field shows {landed[:40]!r})"
+            else:
+                note += "; readback ok"
+            return note
+
+        self._do(f"type-into:{target}", run, lambda note: note)
+        return text
 
     def key(self, keycode: str) -> None:
         self._do(f"key:{keycode}", lambda: self.driver.key(keycode))

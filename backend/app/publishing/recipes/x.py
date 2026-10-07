@@ -38,8 +38,7 @@ class XRecipe(Recipe):
         if not ctx.wait_for("x.compose_field", timeout=12):
             raise PublishFailed("composer never opened")
 
-        ctx.tap("x.compose_field")
-        ctx.type_text(text)
+        ctx.type_into("x.compose_field", text)
 
         if payload.media_path:
             ctx.tap("x.add_media")

@@ -54,6 +54,7 @@ class _Node:
     cls: str = "android.widget.TextView"
     clickable: bool = True
     box: tuple[int, int, int, int] = (0, 0, 0, 0)
+    focused: bool = False
 
     def to_ui(self, pkg: str) -> UiNode:
         return UiNode(
@@ -63,6 +64,7 @@ class _Node:
             cls=self.cls,
             package=pkg,
             clickable=self.clickable,
+            focused=self.focused,
             bounds=Bounds(*self.box),
         )
 
@@ -151,6 +153,7 @@ class VirtualPhone:
                 text=self.compose_caption or "Write a caption...",
                 cls="android.widget.EditText",
                 box=(260, 300, 1040, 700),
+                focused=self.keyboard_open,
             ),
             _Node(rid="share_footer_button", text="Share", box=(40, 1900, 1040, 2030)),
         ]
@@ -206,6 +209,7 @@ class VirtualPhone:
                 text=self.compose_caption or "What's happening?",
                 cls="android.widget.EditText",
                 box=(60, 300, 1020, 760),
+                focused=self.keyboard_open,
             ),
             _Node(rid="gallery", desc="Add photos or video", box=(60, 1880, 220, 2010)),
             _Node(rid="button_tweet", text="Post", box=(820, 120, 1040, 240)),
@@ -336,6 +340,11 @@ class VirtualPhone:
             self.screen = "home"
 
     def type_text(self, text: str) -> None:
+        # `adb shell input text` goes to whatever holds focus. With no focused
+        # field the keystrokes are simply discarded — silently. Modelling that
+        # is what makes this simulator able to catch a lost caption.
+        if not self.keyboard_open:
+            return
         self.compose_caption = (self.compose_caption + text).strip()
 
     def back(self) -> None:
@@ -544,8 +553,12 @@ class SimulatorDriver(DeviceDriver):
         return text
 
     def key(self, keycode: str) -> None:
-        if keycode.upper() in ("KEYCODE_BACK", "BACK", "4"):
+        keycode = keycode.upper()
+        if keycode in ("KEYCODE_BACK", "BACK", "4"):
             self.phone.back()
+        elif keycode in ("KEYCODE_HOME", "HOME", "3", "KEYCODE_APP_SWITCH"):
+            self.phone.package = ""
+            self.phone.screen = "home"
 
     def swipe(self, direction: str, distance: float = 0.6) -> None:
         time.sleep(0.08)

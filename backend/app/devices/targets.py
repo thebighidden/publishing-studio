@@ -15,7 +15,13 @@ OVERRIDES_PATH = DATA_DIR / "targets.json"
 # selector keys:  id | text | desc | cls | clickable | exact | nth
 DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
     # ---------------- Instagram (com.instagram.android) ----------------
+    # Verified against Instagram 450.0.0.50.77 on Android 15.
+    # 450 moved "create" out of the bottom tab bar to the top-left of the
+    # action bar. Match the description first: action_bar_left_button is a
+    # generic id that is a Back button on other screens.
     "instagram.new_post": [
+        {"desc": "Create a post", "exact": False},
+        {"id": "action_bar_left_button"},
         {"id": "tab_new_post"},
         {"id": "creation_tab"},
         {"desc": "New post", "exact": False},
@@ -58,16 +64,24 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"desc": "Share", "exact": True},
     ],
     "instagram.home_tab": [
+        {"id": "feed_tab"},
         {"id": "tab_feed"},
         {"desc": "Home", "exact": True},
     ],
     "instagram.profile_tab": [
+        {"id": "profile_tab"},
         {"id": "tab_avatar"},
         {"desc": "Profile", "exact": False},
     ],
     "instagram.first_profile_post": [
         {"id": "image_button", "nth": 0},
         {"cls": "android.widget.ImageView", "clickable": True, "nth": 0},
+    ],
+    # The profile header's "N posts" label. Far better evidence than counting
+    # grid tiles, which only ever counts what fits on screen.
+    "instagram.post_count": [
+        {"id": "profile_header_post_count_front"},
+        {"id": "profile_header_post_count"},
     ],
     # ---------------- X / Twitter (com.twitter.android) ----------------
     "x.compose": [

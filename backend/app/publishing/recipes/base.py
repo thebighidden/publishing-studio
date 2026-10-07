@@ -5,7 +5,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
-from ...devices.targets import resolve_all
+from ...devices.targets import resolve, resolve_all
 from ..context import RunContext
 
 
@@ -66,6 +66,34 @@ def count_on_screen(ctx: RunContext, target: str) -> int:
         return len(resolve_all(target, ctx.driver.screen_state().nodes))
     except Exception:
         return -1
+
+
+def labelled_count(ctx: RunContext, target: str) -> int:
+    """Read a total straight off a profile header label, e.g. "21 posts".
+
+    Counting grid tiles only counts what is *on screen*. Real Instagram shows
+    about nine, no matter how many posts exist, so a before/after comparison
+    never moves and a genuine publish reads as unconfirmed. When the app gives
+    us the real number, trust that instead.
+
+    Returns -1 when there is no usable number — including abbreviated counts
+    like "1.2K", which cannot prove a delta of one.
+    """
+    try:
+        nodes = ctx.driver.screen_state().nodes
+    except Exception:
+        return -1
+    node = resolve(target, nodes)
+    if node is None:
+        return -1
+    raw = (node.text or node.content_desc or "").strip()
+    if re.search(r"\d\s*[KkMm]\b|\d[.,]\d\s*[KkMm]", raw):
+        return -1
+    m = re.search(r"\d[\d,\s]*", raw)
+    if not m:
+        return -1
+    digits = re.sub(r"[^\d]", "", m.group(0))
+    return int(digits) if digits else -1
 
 
 class Recipe(ABC):

@@ -4,7 +4,28 @@ import time
 from typing import Any
 
 from ..context import RunContext
-from .base import Evidence, PostPayload, PublishFailed, Recipe, count_on_screen, distinctive_token
+from .base import (
+    Evidence,
+    PostPayload,
+    PublishFailed,
+    Recipe,
+    count_on_screen,
+    distinctive_token,
+    labelled_count,
+)
+
+
+def _profile_posts(ctx: RunContext) -> tuple[int, str]:
+    """How many posts the profile claims, and how we worked that out.
+
+    Prefer the header's "N posts" label: counting grid tiles only sees the
+    ~9 that fit on screen, so before and after are identical even when the
+    post really went out.
+    """
+    n = labelled_count(ctx, "instagram.post_count")
+    if n >= 0:
+        return n, "header label"
+    return count_on_screen(ctx, "instagram.first_profile_post"), "visible grid tiles"
 
 
 class InstagramRecipe(Recipe):
@@ -17,10 +38,10 @@ class InstagramRecipe(Recipe):
         ctx.tap_if_present("system.allow_permission")
         ctx.tap("instagram.profile_tab")
         time.sleep(1.5)
-        before = count_on_screen(ctx, "instagram.first_profile_post")
+        before, how = _profile_posts(ctx)
         shot = ctx.screenshot("profile-before")
-        ctx.note("baseline", f"profile shows {before} posts before publishing")
-        return {"profile_posts": before, "screenshot": shot}
+        ctx.note("baseline", f"profile shows {before} posts before publishing (via {how})")
+        return {"profile_posts": before, "counted_by": how, "screenshot": shot}
 
     def publish(self, ctx: RunContext, payload: PostPayload) -> None:
         if not payload.media_path:
@@ -48,8 +69,7 @@ class InstagramRecipe(Recipe):
         if not ctx.wait_for("instagram.caption_field", timeout=12):
             raise PublishFailed("never reached the caption screen")
 
-        ctx.tap("instagram.caption_field")
-        ctx.type_text(payload.full_caption())
+        ctx.type_into("instagram.caption_field", payload.full_caption())
         ctx.key("KEYCODE_BACK")  # dismiss the keyboard so Share is reachable
 
         shot = ctx.screenshot("before-share")
@@ -66,12 +86,13 @@ class InstagramRecipe(Recipe):
         ctx.tap_if_present("instagram.home_tab")
         ctx.tap("instagram.profile_tab")
         time.sleep(2.5)
-        after = count_on_screen(ctx, "instagram.first_profile_post")
+        after, how = _profile_posts(ctx)
         shots.append(ctx.screenshot("profile-after") or "")
 
         checks: dict[str, Any] = {
             "profile_posts_before": before,
             "profile_posts_after": after,
+            "counted_by": how,
             "grid_grew": after > before >= 0,
         }
 
