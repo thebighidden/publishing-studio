@@ -95,7 +95,7 @@ export default function Library() {
   return (
     <div>
       <PageHeader
-        eyebrow="Library"
+        eyebrow="Gallery"
         title={
           <>
             Everything you’ve <Serif>made.</Serif>
@@ -109,7 +109,7 @@ export default function Library() {
               label="Show"
               options={[
                 { value: 'posts', label: 'Posts' },
-                { value: 'media', label: 'Media' },
+                { value: 'media', label: 'Assets' },
               ]}
               value={view}
               onChange={(v) => {

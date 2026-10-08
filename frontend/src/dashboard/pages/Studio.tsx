@@ -17,8 +17,8 @@ import { Btn, EmptyState, FieldError, inputClass, Label, Modal, PageHeader, Pane
 type Tab = 'text' | 'image' | 'video' | 'recipes' | 'projects'
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'text', label: 'Text' },
-  { value: 'image', label: 'Photo' },
-  { value: 'video', label: 'Video' },
+  { value: 'image', label: 'Images' },
+  { value: 'video', label: 'Reels & video' },
   { value: 'recipes', label: 'Recipes' },
   { value: 'projects', label: 'Projects' },
 ]
@@ -43,13 +43,13 @@ function StudioHome() {
   return (
     <div>
       <PageHeader
-        eyebrow="Studio"
+        eyebrow="Creative Lab"
         title={
           <>
             Make <Serif>anything.</Serif>
           </>
         }
-        sub="Write, make photos and videos, or run a recipe. Open a project to lay it all out on a canvas."
+        sub="Create social images, Reels and TikTok-ready videos. Bring in references, choose a model, then keep every result in your Gallery."
         actions={
           <Btn variant="primary" icon={Plus} onClick={() => setNaming(true)}>
             New project
@@ -82,7 +82,7 @@ function StudioHome() {
 /* One generator: text, photo or video                                  */
 /* ------------------------------------------------------------------ */
 
-const RATIOS = ['1:1', '4:5', '9:16', '16:9'].map((v) => ({ value: v, label: v }))
+const FALLBACK_RATIOS = ['1:1', '4:5', '9:16', '16:9']
 
 function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'video'; models: ModelInfo[]; defaultText: string }) {
   const toast = useToast()
@@ -90,9 +90,12 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
   const usable = models.filter((m) => m.kind === kind)
   const [model, setModel] = useState<string | null>(kind === 'text' ? defaultText : (usable.find((m) => m.available)?.id ?? usable[0]?.id ?? null))
   const [prompt, setPrompt] = useState('')
-  const [ratio, setRatio] = useState('4:5')
-  const [duration, setDuration] = useState(5)
-  const [start, setStart] = useState<Asset | null>(null)
+  const [ratio, setRatio] = useState(kind === 'video' ? '9:16' : '4:5')
+  const [duration, setDuration] = useState(kind === 'video' ? 8 : 5)
+  const [resolution, setResolution] = useState<string | null>(null)
+  const [audio, setAudio] = useState(true)
+  const [seed, setSeed] = useState('')
+  const [references, setReferences] = useState<Asset[]>([])
   const [picking, setPicking] = useState(false)
   const [streaming, setStreaming] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -100,11 +103,16 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
   const { data: feed, loading } = useGenerations({ kind })
   const invalidate = useInvalidate()
   const current = usable.find((m) => m.id === model)
-  const needsImage = kind === 'video'
+  const caps = current?.capabilities ?? {}
+  const ratios = (caps.aspect_ratios?.length ? caps.aspect_ratios : FALLBACK_RATIOS).map((value) => ({ value, label: value }))
+  const durations = caps.durations?.length ? caps.durations : [5, 8, 10]
+  const resolutions = caps.resolutions ?? []
+  const maxInputs = caps.max_inputs ?? (kind === 'video' ? 1 : 0)
+  const needsImage = !!caps.requires_image
 
   const go = async () => {
     if (!prompt.trim()) return setError('Describe what you want.')
-    if (needsImage && !start) return setError('Pick the image the video starts from.')
+    if (needsImage && !references[0]) return setError('Pick the image the video starts from.')
     setBusy(true)
     setError(null)
     try {
@@ -116,8 +124,14 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
           kind,
           model,
           prompt,
-          params: kind === 'image' ? { aspect_ratio: ratio } : { duration },
-          input_asset_ids: start ? [start.id] : undefined,
+          params: {
+            ...(caps.aspect_ratios?.length ? { aspect_ratio: ratio } : {}),
+            ...(kind === 'video' ? { duration } : {}),
+            ...(resolution ? { resolution } : {}),
+            ...(caps.audio && !caps.audio_always_on ? { audio } : {}),
+            ...(seed ? { seed: Number(seed) } : {}),
+          },
+          input_asset_ids: references.length ? references.map((asset) => asset.id) : undefined,
         })
       }
       setPrompt('')
@@ -149,18 +163,19 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
             {current && !current.available && <p className="mt-1.5 text-[11.5px] text-warn">{current.reason}</p>}
           </div>
 
-          {needsImage && (
+          {maxInputs > 0 && (
             <div>
-              <Label>Starts from</Label>
+              <Label>{kind === 'video' ? (needsImage ? 'Starts from' : 'Start frame or reference') : 'Reference images'}</Label>
               <button
                 type="button"
                 onClick={() => setPicking(true)}
                 className="mt-2 flex w-full items-center gap-3 rounded-md border border-dashed border-line-2 p-2 text-left text-[12.5px] text-muted transition-colors hover:border-accent-soft/60 hover:text-fg"
               >
-                {start ? <MediaThumb asset={start} className="size-12" /> : <ImagePlus className="m-3 size-5" strokeWidth={1.5} />}
-                {start ? (start.name ?? 'Image') : 'Pick an image from the library'}
+                {references[0] ? <MediaThumb asset={references[0]} className="size-12" /> : <ImagePlus className="m-3 size-5" strokeWidth={1.5} />}
+                {references.length ? `${references.length} image${references.length > 1 ? 's' : ''} selected${caps.end_frame && references[1] ? ' · includes end frame' : ''}` : needsImage ? 'Pick the starting image' : 'Optional: add references from the Gallery'}
               </button>
-              <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={(a) => setStart(a.find((x) => x.kind === 'image') ?? null)} max={1} initial={start ? [start] : []} />
+              <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={(assets) => setReferences(assets.filter((asset) => asset.kind === 'image').slice(0, maxInputs))} max={maxInputs} initial={references} />
+              {caps.end_frame && <p className="mt-1.5 text-[11px] text-dim">Choose two images to set a start and end frame.</p>}
             </div>
           )}
 
@@ -185,17 +200,35 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
             />
           </label>
 
-          {kind === 'image' && (
+          {kind !== 'text' && caps.aspect_ratios?.length !== 0 && (
             <div>
-              <Label>Shape</Label>
-              <Segmented id="ratio" label="Aspect ratio" options={RATIOS} value={ratio} onChange={setRatio} className="mt-2 w-fit" />
+              <Label>{kind === 'video' ? 'Format' : 'Shape'}</Label>
+              <Segmented id="ratio" label="Aspect ratio" options={ratios} value={ratios.some((item) => item.value === ratio) ? ratio : ratios[0].value} onChange={setRatio} className="mt-2 w-fit" />
             </div>
           )}
           {kind === 'video' && (
             <div>
               <Label>Length</Label>
-              <Segmented id="duration" label="Duration" options={[5, 10].map((v) => ({ value: v, label: `${v} s` }))} value={duration} onChange={setDuration} className="mt-2 w-fit" />
+              <Segmented id="duration" label="Duration" options={durations.map((v) => ({ value: v, label: `${v} s` }))} value={durations.includes(duration) ? duration : durations[0]} onChange={setDuration} className="mt-2 w-fit" />
             </div>
+          )}
+          {resolutions.length > 0 && (
+            <div>
+              <Label>Resolution</Label>
+              <Segmented id="resolution" label="Resolution" options={resolutions.map((value) => ({ value, label: value.toUpperCase() }))} value={resolution && resolutions.includes(resolution) ? resolution : (caps.default_resolution ?? resolutions[0])} onChange={setResolution} className="mt-2 w-fit" />
+            </div>
+          )}
+          {caps.audio && !caps.audio_always_on && (
+            <label className="flex items-center justify-between rounded-md border border-line px-3 py-2.5 text-[12.5px]">
+              <span>Generate sound</span>
+              <input type="checkbox" checked={audio} onChange={(event) => setAudio(event.target.checked)} />
+            </label>
+          )}
+          {caps.seed && (
+            <label className="block">
+              <Label>Seed <span className="normal-case text-dim">optional</span></Label>
+              <input value={seed} onChange={(event) => setSeed(event.target.value.replace(/\D/g, '').slice(0, 7))} placeholder="Random" inputMode="numeric" className={cn(inputClass, 'mt-2')} />
+            </label>
           )}
 
           <FieldError message={error} />

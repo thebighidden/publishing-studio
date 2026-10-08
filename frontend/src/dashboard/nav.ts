@@ -44,7 +44,7 @@ export const NAV_GROUPS: NavGroup[] = [
   {
     label: 'Create',
     items: [
-      { path: '/dashboard/studio', label: 'Studio', icon: Wand2 },
+      { path: '/dashboard/studio', label: 'Creative Lab', icon: Wand2 },
       { path: '/dashboard/campaigns', label: 'Campaigns', icon: Megaphone },
       { path: '/dashboard/create', label: 'Composer', icon: PenLine },
       { path: '/dashboard/reposts', label: 'Reposts', icon: Repeat2 },
@@ -58,7 +58,7 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Plan',
     items: [
       { path: '/dashboard/calendar', label: 'Calendar', icon: CalendarDays, count: (o) => o.counts.scheduled },
-      { path: '/dashboard/library', label: 'Library', icon: FolderOpen, count: (o) => o.counts.total },
+      { path: '/dashboard/library', label: 'Gallery', icon: FolderOpen, count: (o) => o.counts.total },
       { path: '/dashboard/automations', label: 'Automations', icon: Workflow },
     ],
   },

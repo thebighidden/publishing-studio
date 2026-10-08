@@ -91,7 +91,8 @@ class StudioGenerationTest extends TestCase
         $list = $models();
         $this->assertTrue($list['anthropic/claude-opus-5-5']['available']);
         $this->assertSame('Claude API', $list['anthropic/claude-opus-5-5']['reach']);
-        $this->assertSame('No API route for this model yet.', $list['higgsfield/soul']['reason']);
+        $this->assertSame('Not in your Higgsfield plan.', $list['higgsfield/soul']['reason']);
+        $this->assertSame(['16:9', '9:16', '1:1'], $list['higgsfield/kling-3-pro']['capabilities']['aspect_ratios']);
         $this->assertSame('The Higgsfield connector hasn’t been tested.', $list['higgsfield/ideogram-4']['reason']);
 
         // Testing the connector: bad credentials are refused, good ones get "not found".
@@ -213,8 +214,8 @@ class StudioGenerationTest extends TestCase
         $this->assertStringContainsString('flagged the result as unsafe', Generation::find($retry)->error);
 
         // Switching to a model that can't run is refused up front.
-        $this->spa()->postJson("/api/generations/{$id}/retry", ['model' => 'higgsfield/kling'])->assertCreated();
-        $this->assertSame('Kling isn’t available: No API route for this model yet.', Generation::latest('id')->first()->error);
+        $this->spa()->postJson("/api/generations/{$id}/retry", ['model' => 'higgsfield/kling-3-pro'])->assertCreated();
+        $this->assertSame('Kling 3 Pro isn’t available: Not in your Higgsfield plan.', Generation::latest('id')->first()->error);
     }
 
     public function test_the_text_to_video_recipe_runs_its_steps_on_its_own(): void

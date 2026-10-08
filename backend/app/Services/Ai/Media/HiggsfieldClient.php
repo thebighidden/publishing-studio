@@ -31,11 +31,13 @@ class HiggsfieldClient
     {
         $r = $this->call(fn () => $this->http()->withHeaders(['Idempotency-Key' => $idempotencyKey])->post($route, $body));
 
-        if (! $r->json('request_id') || ! $r->json('status_url')) {
+        if (! $r->json('request_id')) {
             throw new GenerationFailed('Higgsfield didn’t accept the request.');
         }
 
-        return ['request_id' => $r->json('request_id'), 'status_url' => $r->json('status_url')];
+        $id = (string) $r->json('request_id');
+
+        return ['request_id' => $id, 'status_url' => (string) ($r->json('status_url') ?: "/requests/{$id}/status")];
     }
 
     /**
