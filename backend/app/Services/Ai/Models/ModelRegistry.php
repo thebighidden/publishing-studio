@@ -55,12 +55,29 @@ class ModelRegistry
 
     public function defaultText(): string
     {
-        $default = config('ai.default_text');
-        $models = $this->all('text');
+        return $this->textModelOr((string) config('ai.default_text'));
+    }
 
-        return collect($models)->first(fn ($m) => $m['id'] === $default && $m['available'])['id']
-            ?? collect($models)->firstWhere('available', true)['id']
-            ?? $default;
+    /**
+     * The preferred text model if it can run, otherwise whichever one can, or null when nothing
+     * can — which is the honest answer to "is AI writing switched on", because a key for one
+     * provider doesn't help a feature pointed at another.
+     */
+    public function availableText(string $preferred): ?string
+    {
+        $available = collect($this->all('text'))->where('available', true)->pluck('id');
+
+        return $available->contains($preferred) ? $preferred : $available->first();
+    }
+
+    /**
+     * The preferred text model if it can run, otherwise whichever one can. Configuring a model
+     * that isn't reachable should cost a fallback, not a dead feature — and the caller records
+     * the id this returns, so the run says which model actually wrote it.
+     */
+    public function textModelOr(string $preferred): string
+    {
+        return $this->availableText($preferred) ?? $preferred;
     }
 
     /**

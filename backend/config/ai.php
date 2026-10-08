@@ -19,7 +19,7 @@ return [
     */
 
     // What the composer and the generators start on.
-    'default_text' => 'anthropic/claude-opus-5',
+    'default_text' => 'gateway/glm-5.3-flash',
 
     'providers' => [
 
@@ -33,10 +33,19 @@ return [
             ],
         ],
 
-        // Any OpenAI-compatible endpoint: a team gateway, OpenRouter, vLLM, LM Studio.
+        // Any OpenAI-compatible endpoint: Ollama Cloud, a team gateway, OpenRouter, vLLM, LM Studio.
         // Text models are discovered from GET {url}/models; list image models by id.
+        //
+        // Reasoning models (glm-5.3, glm-5.3-flash, deepseek, kimi) are left on their default
+        // thinking mode deliberately. Ollama Cloud accepts `think: false` and
+        // `reasoning_effort: "none"` but neither stops the model reasoning — they only stop it
+        // being separated out, so the monologue lands in `choices[].message.content`, in one case
+        // with a literal `</think>` tag still in it. On the default, `content` holds the answer
+        // alone and the reasoning stays in `message.reasoning`, which this app never reads. So
+        // the default is both cleaner and the only mode that cannot leak thinking into a caption.
         'gateway' => [
-            'reach' => 'Gateway',
+            // Whose gateway it is, for the model picker. Generic unless you say otherwise.
+            'reach' => env('AI_GATEWAY_REACH', 'Gateway'),
             'url' => env('AI_GATEWAY_URL'),
             'key' => env('AI_GATEWAY_KEY'),
             'image_models' => array_values(array_filter(explode(',', (string) env('AI_GATEWAY_IMAGE_MODELS', '')))),
@@ -133,7 +142,7 @@ return [
     */
 
     'agents' => [
-        'model' => 'anthropic/claude-opus-5-5',
+        'model' => 'gateway/glm-5.3-flash',
         'image_model' => 'higgsfield/ideogram-4',
         'video_model' => 'higgsfield/wan-2-7-i2v',
     ],
@@ -147,10 +156,14 @@ return [
     | writing the content kit. Interview turns run at low effort so replies
     | come back quickly; the kit is the deliverable and gets more thought.
     |
+    | A full "provider/model" id, like default_text and agents.model, and
+    | resolved through the registry: if this one can't run the interview falls
+    | back to another model that can, rather than to the fixed question list.
+    |
     */
 
     'intake' => [
-        'model' => 'claude-opus-5-5',
+        'model' => 'gateway/glm-5.3-flash',
         'interview_effort' => 'low',
         'kit_effort' => 'medium',
     ],

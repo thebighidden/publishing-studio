@@ -41,9 +41,25 @@ class HiggsfieldProvider implements MediaProvider
         if (! $route) {
             throw new GenerationFailed("{$spec['label']} does not have an API route yet.");
         }
-        $request = $this->client->submit($route, $body, "flowai-generation-{$generation->id}");
+        $request = $this->client->submit($route, $body, $this->idempotencyKey($generation, $route, $body));
 
         return ['external_id' => $request['request_id'], 'status_url' => $request['status_url']];
+    }
+
+    /**
+     * Stable for one body so a queue retry of the same job cannot be charged twice, and distinct
+     * for anything else. The generation id alone is not enough: ids are reused once a row is
+     * deleted, and Higgsfield remembers a key for about a day, so a reused id either earns a 422
+     * ("already used with different request parameters") or — worse, silently — hands back the
+     * image belonging to the deleted generation.
+     *
+     * @param  array<string, mixed>  $body
+     */
+    private function idempotencyKey(Generation $generation, string $route, array $body): string
+    {
+        $fingerprint = substr(hash('sha256', $route."\n".json_encode($body)), 0, 16);
+
+        return "flowai-generation-{$generation->id}-".($generation->created_at?->getTimestamp() ?? 0)."-{$fingerprint}";
     }
 
     public function poll(Generation $generation): array

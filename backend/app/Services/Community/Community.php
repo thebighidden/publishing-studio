@@ -6,6 +6,8 @@ use App\Models\Account;
 use App\Models\Comment;
 use App\Models\Repost;
 use App\Models\User;
+use App\Services\Ai\GenerationFailed;
+use App\Services\Ai\Models\ModelRegistry;
 use App\Services\Ai\TextGenerator;
 
 /**
@@ -14,11 +16,23 @@ use App\Services\Ai\TextGenerator;
  */
 class Community
 {
-    public function __construct(private readonly TextGenerator $ai) {}
+    public function __construct(private readonly ModelRegistry $models) {}
 
     public function aiAvailable(User $user): bool
     {
-        return $this->ai->enabled() && $user->hasVerifiedEmail();
+        return $this->models->availableText((string) config('ai.default_text')) !== null && $user->hasVerifiedEmail();
+    }
+
+    /**
+     * The default text model, or any other that can run.
+     *
+     * @return array{0: TextGenerator, 1: string}
+     *
+     * @throws GenerationFailed when no model can run.
+     */
+    private function generator(): array
+    {
+        return $this->models->text($this->models->defaultText());
     }
 
     /**
@@ -30,8 +44,9 @@ class Community
     public function adapt(Repost $repost): array
     {
         $account = $repost->account;
-        $reply = $this->ai->json(
-            (string) config('ai.default_text'),
+        [$ai, $model] = $this->generator();
+        $reply = $ai->json(
+            $model,
             $this->voiceSystem($account, 'You adapt posts from X for Instagram. Same idea, native to the account and the format: a caption people read, not a tweet pasted elsewhere.'),
             "Turn this X post by @{$repost->author} into an Instagram caption for @{$account->handle}.\n\n"
                 ."X post:\n{$repost->source_text}\n\n"
@@ -63,8 +78,9 @@ class Community
     public function triage(Comment $comment): array
     {
         $account = $comment->account;
-        $reply = $this->ai->json(
-            (string) config('ai.default_text'),
+        [$ai, $model] = $this->generator();
+        $reply = $ai->json(
+            $model,
             $this->voiceSystem($account, 'You triage comments for a social account. Reply to what is friendly, curious or useful; ignore spam and bots; send anything sensitive, angry, legal or ambiguous to a human. Never argue.'),
             "Comment by @{$comment->author}".($comment->post_ref ? " on “{$comment->post_ref}”" : '').":\n{$comment->body}\n\n"
                 ."Decide: reply (with a short, warm draft in the account's voice, max 40 words), ignore, or human. Give a one-line reason.",

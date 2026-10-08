@@ -1,17 +1,19 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowUpRight, FolderKanban, ImagePlus, PenLine, Plus, Send, Sparkles, Wand2, X } from 'lucide-react'
+import { ArrowUpRight, CalendarClock, Check, FileText, FolderKanban, ImagePlus, PenLine, Plus, Sparkles, Wand2, X } from 'lucide-react'
+import { PLATFORMS, PlatformIcon, type PlatformId } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
 import { api, type Asset, type Generation, type ModelInfo, type Project, type Registry } from '../../lib/api'
 import { ease } from '../../lib/motion'
 import { cn } from '../../lib/cn'
 import { useQueryParam, useRouter } from '../../lib/router'
-import { fmtRelative, useApi, useInvalidate } from '../data'
+import { fmtRelative, PLATFORM_ORDER, useApi, useInvalidate } from '../data'
 import { MediaPicker, MediaThumb } from '../media/Media'
 import { CanvasView } from '../studio/Canvas'
 import { GenerationCard, ModelPicker, useGenerations } from '../studio/parts'
 import { messageFor, retryGeneration, runMedia, runText } from '../studio/run'
 import { useToast } from '../toast'
+import { useUser } from '../Shell'
 import { Btn, EmptyState, FieldError, inputClass, Label, Modal, PageHeader, Panel, Segmented, Skeleton, Stagger } from '../ui'
 
 type Tab = 'text' | 'image' | 'video' | 'recipes' | 'projects'
@@ -103,11 +105,11 @@ const CREATIVE_STARTS = {
 } as const
 
 function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'video'; models: ModelInfo[]; defaultText: string }) {
+  const incomingPrompt = useQueryParam('prompt')
   const toast = useToast()
-  const { navigate } = useRouter()
   const usable = models.filter((m) => m.kind === kind)
   const [model, setModel] = useState<string | null>(kind === 'text' ? defaultText : (usable.find((m) => m.available)?.id ?? usable[0]?.id ?? null))
-  const [prompt, setPrompt] = useState('')
+  const [prompt, setPrompt] = useState(incomingPrompt ?? '')
   const [ratio, setRatio] = useState(kind === 'video' ? '9:16' : '4:5')
   const [duration, setDuration] = useState(kind === 'video' ? 8 : 5)
   const [resolution, setResolution] = useState<string | null>(null)
@@ -122,6 +124,7 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
   const [streaming, setStreaming] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [publishGeneration, setPublishGeneration] = useState<Generation | null>(null)
   const { data: feed, loading } = useGenerations({ kind })
   const invalidate = useInvalidate()
   const current = usable.find((m) => m.id === model)
@@ -336,10 +339,10 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
                   <Btn
                     size="sm"
                     variant="subtle"
-                    icon={Send}
-                    onClick={() => navigate(g.kind === 'text' ? `/dashboard/create?body=${encodeURIComponent(g.output_text ?? '')}` : `/dashboard/create?assets=${g.outputs.map((a) => a.id).join(',')}`)}
+                    icon={CalendarClock}
+                    onClick={() => setPublishGeneration(g)}
                   >
-                    Use in a post
+                    Create & schedule
                   </Btn>
                 )
               }
@@ -347,7 +350,103 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
           ))
         )}
       </div>
+      <PublishFromLab generation={publishGeneration} onClose={() => setPublishGeneration(null)} />
     </div>
+  )
+}
+
+/** A compact hand-off from a finished creative asset to the studio's multi-platform scheduler. */
+function PublishFromLab({ generation, onClose }: { generation: Generation | null; onClose: () => void }) {
+  const user = useUser()
+  const { navigate } = useRouter()
+  const toast = useToast()
+  const invalidate = useInvalidate()
+  const nextMorning = () => {
+    const date = new Date()
+    date.setDate(date.getDate() + 1)
+    return { date: date.toISOString().slice(0, 10), time: '09:00' }
+  }
+  const initial = nextMorning()
+  const [caption, setCaption] = useState('')
+  const [platforms, setPlatforms] = useState<PlatformId[]>(user.preferences.platforms.length ? user.preferences.platforms : ['instagram', 'tiktok'])
+  const [date, setDate] = useState(initial.date)
+  const [time, setTime] = useState(initial.time)
+  const [mode, setMode] = useState<'draft' | 'schedule'>('schedule')
+  const [saving, setSaving] = useState(false)
+
+  // New output, new suggested caption. Keep an operator's edits while the modal stays open.
+  const sourceCaption = generation?.kind === 'text' ? generation.output_text ?? '' : generation ? `Made in Creative Lab — ${generation.prompt}` : ''
+  const effectiveCaption = caption || sourceCaption
+  const toggle = (id: PlatformId) => setPlatforms((items) => (items.includes(id) ? items.filter((item) => item !== id) : PLATFORM_ORDER.filter((item) => item === id || items.includes(item))))
+  const save = async () => {
+    if (!generation || !effectiveCaption.trim() || !platforms.length) return
+    const scheduledAt = new Date(`${date}T${time}`).toISOString()
+    if (mode === 'schedule' && Number.isNaN(Date.parse(scheduledAt))) return toast('Choose a valid date and time.', 'error')
+    setSaving(true)
+    try {
+      await api('/posts', {
+        method: 'POST',
+        body: {
+          body: effectiveCaption.trim(),
+          format: generation.kind === 'text' ? 'text' : generation.kind,
+          platforms,
+          status: mode === 'schedule' ? 'scheduled' : 'draft',
+          scheduled_at: mode === 'schedule' ? scheduledAt : null,
+          asset_ids: generation.outputs.map((asset) => asset.id),
+        },
+      })
+      invalidate()
+      toast(mode === 'schedule' ? 'Post scheduled across the selected platforms.' : 'Post saved as a draft.')
+      onClose()
+      navigate(mode === 'schedule' ? '/dashboard/calendar' : '/dashboard/library')
+    } catch (error) {
+      toast(messageFor(error), 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <Modal open={!!generation} onClose={onClose} title="Create a multi-platform post" className="max-w-2xl">
+      {generation && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-3 rounded-lg border border-accent/30 bg-accent/[0.06] p-3">
+            {generation.outputs[0] ? <MediaThumb asset={generation.outputs[0]} className="size-12" /> : <Sparkles className="m-3 size-5 text-accent-soft" />}
+            <div className="min-w-0"><p className="text-[12.5px] font-medium">{generation.outputs.length ? `${generation.outputs.length} creative asset${generation.outputs.length > 1 ? 's' : ''} attached` : 'Text output attached'}</p><p className="truncate text-[11px] text-dim">{generation.model_label}</p></div>
+          </div>
+          <label className="block"><Label>Caption</Label><textarea value={effectiveCaption} onChange={(event) => setCaption(event.target.value)} rows={4} className={cn(inputClass, 'mt-2 h-auto resize-none py-2.5')} /></label>
+          <div>
+            <Label>Publish to</Label>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {PLATFORM_ORDER.map((id) => {
+                const active = platforms.includes(id)
+                return (
+                  <button
+                    key={id}
+                    type="button"
+                    onClick={() => toggle(id)}
+                    aria-pressed={active}
+                    className={cn(
+                      'flex h-9 items-center gap-2 rounded-full border px-3 text-[12px] transition-colors',
+                      active ? 'border-fg bg-fg text-ink' : 'border-line-2 text-muted hover:text-fg',
+                    )}
+                  >
+                    <PlatformIcon id={id} className="size-3.5" />
+                    {PLATFORMS[id].name}
+                    {active && <Check className="size-3" />}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+          <div className="rounded-lg border border-line p-3">
+            <div className="flex items-center justify-between gap-3"><Label>Publishing plan</Label><Segmented id="lab-post-mode" label="Publishing plan" options={[{ value: 'draft', label: 'Save draft' }, { value: 'schedule', label: 'Schedule' }]} value={mode} onChange={setMode} /></div>
+            {mode === 'schedule' && <div className="mt-3 grid grid-cols-2 gap-2"><label><Label>Date</Label><input type="date" value={date} min={new Date().toISOString().slice(0, 10)} onChange={(event) => setDate(event.target.value)} className={cn(inputClass, 'mt-1.5')} /></label><label><Label>Time</Label><input type="time" value={time} onChange={(event) => setTime(event.target.value)} className={cn(inputClass, 'mt-1.5')} /></label></div>}
+          </div>
+          <div className="flex justify-end gap-2"><Btn variant="subtle" onClick={onClose}>Cancel</Btn><Btn variant="primary" icon={mode === 'schedule' ? CalendarClock : FileText} onClick={save} loading={saving} disabled={!effectiveCaption.trim() || !platforms.length}>{mode === 'schedule' ? 'Schedule post' : 'Save draft'}</Btn></div>
+        </div>
+      )}
+    </Modal>
   )
 }
 
