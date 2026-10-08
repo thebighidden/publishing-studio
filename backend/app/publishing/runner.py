@@ -8,6 +8,7 @@ from sqlmodel import Session, select
 
 from .. import settings_store
 from ..config import MEDIA_DIR
+from ..db import session_scope
 from ..devices.base import DeviceError
 from ..devices.registry import driver_for
 from ..models import (
@@ -24,6 +25,7 @@ from ..models import (
     utcnow,
 )
 from . import events
+from .bookings import describe_booking
 from .context import BudgetExceeded, RunContext, StepRecord
 from .recipes.base import Evidence, PostPayload, PublishFailed, Recipe
 from .recipes.instagram import InstagramRecipe
@@ -61,7 +63,9 @@ def preflight(session: Session, post: Post) -> tuple[Account, Phone]:
     if phone is None:
         raise NotPublishable("linked phone no longer exists")
     if phone.busy_run_id:
-        raise NotPublishable(f"phone {phone.name} is busy with run {phone.busy_run_id}")
+        # Never the raw booking: a phone held by the collector would otherwise
+        # be reported as "busy with run metrics-ab12cd".
+        raise NotPublishable(f"phone {phone.name} is busy: {describe_booking(phone.busy_run_id)}")
 
     # R3: no tight posting loops on one account.
     cooldown = settings_store.publishing(session)["cooldown_seconds"]
@@ -283,6 +287,69 @@ def _evidence_payload(evidence: Optional[Evidence], note: str) -> dict:
         "screenshots": evidence.screenshots,
         "checks": evidence.checks,
     }
+
+
+def release_abandoned_runs() -> int:
+    """Clean up after a process that died in the middle of a run.
+
+    A run is only ever advanced by the thread that started it, so a run still
+    marked queued or running when the server boots belongs to a process that no
+    longer exists. Nothing will ever finish it, and the phone it booked stays
+    booked forever: `sim-b` sat unusable for a day this way, which blocked both
+    publishing and performance readings for the account linked to it.
+
+    The outcome is `uncertain`, never `failed`. The post may well have gone out
+    before the process died, and the one thing this studio must not do is retry
+    something that might already be live.
+    """
+    released = 0
+    with session_scope() as session:
+        stale = session.exec(
+            select(Run).where(Run.status.in_([RunStatus.running, RunStatus.queued]))
+        ).all()
+        for run in stale:
+            note = "the studio restarted while this run was in flight"
+            run.status = RunStatus.finished
+            run.outcome = Outcome.uncertain
+            run.ended_at = utcnow()
+            run.error = run.error or note
+            run.evidence = run.evidence or {"kind": "none", "ref": "", "note": note}
+            session.add(run)
+
+            post = session.get(Post, run.post_id) if run.post_id else None
+            if post is not None and post.status == PostStatus.publishing:
+                post.status = PostStatus.uncertain
+                post.last_error = note
+                session.add(post)
+
+            if run.phone_id:
+                phone = session.get(Phone, run.phone_id)
+                if phone is not None and phone.busy_run_id == run.id:
+                    phone.busy_run_id = None
+                    session.add(phone)
+            released += 1
+        session.commit()
+
+    # Anything still booked by a run that no longer exists at all, which is how
+    # a half-written record from an older crash can keep a phone off the air.
+    with session_scope() as session:
+        for phone in session.exec(select(Phone).where(Phone.busy_run_id != None)).all():  # noqa: E711
+            booking = phone.busy_run_id or ""
+            if booking.startswith("metrics-") or session.get(Run, booking) is None:
+                # A metrics booking is never resumed across a restart either:
+                # the collection thread is gone with the process.
+                phone.busy_run_id = None
+                session.add(phone)
+                released += 1
+        session.commit()
+
+    if released:
+        events.emit(
+            "publishing.released",
+            count=released,
+            note="runs abandoned by a previous process were closed as uncertain",
+        )
+    return released
 
 
 def run_record(session: Session, run: Run) -> dict:

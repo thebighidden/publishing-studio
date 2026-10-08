@@ -6,6 +6,13 @@ what the phone screen actually showed afterwards.
 
 Instagram and X, via ADB (physical device or emulator).
 
+**Guides**
+
+- [Connecting and monitoring a phone](docs/connecting-and-monitoring-a-phone.md) — USB,
+  Wi-Fi debugging, emulators, the live device console, and recalibrating named targets.
+- [Controlling the app to post to social media](docs/publishing-to-social-media.md) — the
+  campaign → gate → publish → verify pipeline, both platform recipes, and the evidence model.
+
 ---
 
 ## The one idea that matters

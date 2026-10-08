@@ -27,11 +27,11 @@
   --uncertain-soft: #ebe6f7;
   --blue: #426b86;
   --blue-soft: #e2edf2;
-  --radius-sm: 3px;
-  --radius: 5px;
-  --radius-lg: 9px;
-  --shadow-sm: 0 1px 0 rgba(17,17,15,.04);
-  --shadow: 0 24px 70px rgba(17,17,15,.14);
+  --legacy-radius-sm: 3px;
+  --legacy-radius: 5px;
+  --legacy-radius-lg: 9px;
+  --legacy-shadow-sm: 0 1px 0 rgba(17,17,15,.04);
+  --legacy-shadow:0 24px 70px rgba(17,17,15,.14);
   font-family: Arial, Helvetica, sans-serif;
   font-synthesis: none;
   color-scheme: light;
@@ -52,19 +52,26 @@ body {
 
 button, input, textarea, select { font: inherit; }
 ::selection { background: var(--action); color: #11110f; }
-a { color: var(--accent-deep); text-decoration: none; text-underline-offset: 3px; }
-a:hover { text-decoration: underline; }
+/* The `:where(:not(.ui, .ui *))` guard on the bare-element rules below is load
+ * bearing. This stylesheet is unlayered, so without it these rules would
+ * outrank every Tailwind utility (which live in @layer utilities) inside a
+ * migrated `.ui` surface -- a shadcn <Button> would come out beige with a 3px
+ * radius. `:where()` contributes no specificity, so nothing outside `.ui`
+ * changes. index.css carries a `.ui`-scoped stand-in for the element defaults
+ * these rules used to provide. */
+a:where(:not(.ui, .ui *)) { color: var(--accent-deep); text-decoration: none; text-underline-offset: 3px; }
+a:where(:not(.ui, .ui *)):hover { text-decoration: underline; }
 
-h1, h2 {
+h1:where(:not(.ui, .ui *)), h2:where(:not(.ui, .ui *)) {
   font-family: Arial, Helvetica, sans-serif;
   font-weight: 700;
   letter-spacing: -.045em;
   color: var(--ink);
 }
 
-h1 { font-size: clamp(31px, 3vw, 43px); line-height: 1.03; margin: 2px 0 7px; }
-h2 { font-family: Georgia, "Times New Roman", serif; font-size: 23px; font-weight: 400; line-height: 1.15; margin: 0 0 12px; }
-h3 {
+h1:where(:not(.ui, .ui *)) { font-size: clamp(31px, 3vw, 43px); line-height: 1.03; margin: 2px 0 7px; }
+h2:where(:not(.ui, .ui *)) { font-family: Georgia, "Times New Roman", serif; font-size: 23px; font-weight: 400; line-height: 1.15; margin: 0 0 12px; }
+h3:where(:not(.ui, .ui *)) {
   margin: 0 0 14px;
   color: var(--muted-strong);
   font-size: 11px;
@@ -73,7 +80,7 @@ h3 {
   text-transform: uppercase;
 }
 
-p { margin: 0 0 1em; }
+p:where(:not(.ui, .ui *)) { margin: 0 0 1em; }
 code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
 
 /* ---------- app shell ---------- */
@@ -170,12 +177,12 @@ code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", m
 .workspace-name { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; font-weight: 600; }
 .workspace-name::before { content: ""; width: 19px; height: 1px; background: var(--accent); }
 .operator { display: flex; align-items: center; gap: 9px; color: var(--muted); font-size: 12px; }
-.operator-mark { display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); color: var(--ink); font-size: 10px; font-weight: 700; box-shadow: var(--shadow-sm); }
+.operator-mark { display: grid; place-items: center; width: 30px; height: 30px; min-height: 30px; padding: 0; border-radius: 50%; background: var(--surface); border: 1px solid var(--line); color: var(--ink); font-size: 10px; font-weight: 700; box-shadow: var(--legacy-shadow-sm); }
 .topbar-actions { display: flex; align-items: center; gap: 8px; }
 .icon-button { position: relative; width: 34px; min-height: 34px; padding: 0; border-radius: 50%; font-size: 17px; }
 .notification-wrap { position: relative; }
 .notification-count { position: absolute; top: -4px; right: -4px; display: grid; place-items: center; width: 16px; height: 16px; border: 2px solid var(--canvas); border-radius: 50%; background: var(--accent); color: white; font-size: 8px; }
-.notification-panel { position: absolute; z-index: 40; top: 44px; right: -42px; width: min(390px, calc(100vw - 32px)); max-height: 520px; padding: 17px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--shadow); }
+.notification-panel { position: absolute; z-index: 40; top: 44px; right: -42px; width: min(390px, calc(100vw - 32px)); max-height: 520px; padding: 17px; overflow: hidden; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); box-shadow: var(--legacy-shadow); }
 .notification-panel .spread { flex-direction: row; align-items: center; }
 .notification-panel h3 { margin-bottom: 2px; }
 .notification-list { max-height: 420px; margin-top: 12px; overflow-y: auto; }
@@ -196,16 +203,19 @@ code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", m
 .panel {
   padding: 20px;
   border: 1px solid var(--line);
-  border-radius: var(--radius);
+  border-radius: var(--legacy-radius);
   background: var(--surface);
   box-shadow: none;
 }
 .main > .panel + .panel, .main > .panel + .grid, .main > .grid + .panel { margin-top: 16px; }
-.grid { display: grid; gap: 16px; }
+/* `.grid` and `.row` are legacy layout helpers whose names also happen to be
+ * Tailwind utilities, so they get the same guard -- otherwise this unlayered
+ * `gap: 16px` would quietly override any gap-* utility inside a `.ui` tree. */
+.grid:where(:not(.ui, .ui *)) { display: grid; gap: 16px; }
 .grid.two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-.row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.row:where(:not(.ui, .ui *)) { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
 .row.end { justify-content: flex-end; }
 .spread { display: flex; align-items: center; justify-content: space-between; gap: 18px; }
 .stack { display: flex; flex-direction: column; gap: 11px; }
@@ -257,7 +267,7 @@ code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", m
 
 /* ---------- controls ---------- */
 
-button, .btn, a.button {
+button:where(:not(.ui, .ui *)), .btn:where(:not(.ui, .ui *)), a.button:where(:not(.ui, .ui *)) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -265,7 +275,7 @@ button, .btn, a.button {
   min-height: 36px;
   padding: 8px 13px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--legacy-radius-sm);
   background: var(--surface);
   color: var(--ink);
   font-size: 12px;
@@ -276,33 +286,33 @@ button, .btn, a.button {
   box-shadow: 0 1px 1px rgba(31,42,34,.03);
   transition: transform .16s ease, border-color .16s ease, background .16s ease, box-shadow .16s ease;
 }
-button:hover:not(:disabled), a.button:hover { border-color: #aeb4aa; background: #faf9f5; text-decoration: none; box-shadow: 0 5px 14px rgba(31,42,34,.06); transform: translateY(-1px); }
-button:active:not(:disabled) { transform: translateY(0); }
-button:disabled { opacity: .48; cursor: not-allowed; }
-button.primary { border-color: var(--action); background: var(--action); color: var(--action-ink); box-shadow: none; }
-button.primary:hover:not(:disabled) { border-color: #e3ff78; background: #e3ff78; }
-button.danger { color: var(--bad); }
-button.danger:hover:not(:disabled) { border-color: #ecc5bf; background: var(--bad-soft); }
-button.ghost { border-color: transparent; background: transparent; box-shadow: none; }
-button.sm, button.small, a.button.small { min-height: 29px; padding: 5px 9px; font-size: 11px; }
+button:where(:not(.ui, .ui *)):hover:not(:disabled), a.button:where(:not(.ui, .ui *)):hover { border-color: #aeb4aa; background: #faf9f5; text-decoration: none; box-shadow: 0 5px 14px rgba(31,42,34,.06); transform: translateY(-1px); }
+button:where(:not(.ui, .ui *)):active:not(:disabled) { transform: translateY(0); }
+button:where(:not(.ui, .ui *)):disabled { opacity: .48; cursor: not-allowed; }
+button.primary:where(:not(.ui, .ui *)) { border-color: var(--action); background: var(--action); color: var(--action-ink); box-shadow: none; }
+button.primary:where(:not(.ui, .ui *)):hover:not(:disabled) { border-color: #e3ff78; background: #e3ff78; }
+button.danger:where(:not(.ui, .ui *)) { color: var(--bad); }
+button.danger:where(:not(.ui, .ui *)):hover:not(:disabled) { border-color: #ecc5bf; background: var(--bad-soft); }
+button.ghost:where(:not(.ui, .ui *)) { border-color: transparent; background: transparent; box-shadow: none; }
+button.sm:where(:not(.ui, .ui *)), button.small:where(:not(.ui, .ui *)), a.button.small:where(:not(.ui, .ui *)) { min-height: 29px; padding: 5px 9px; font-size: 11px; }
 
-input, textarea, select {
+input:where(:not(.ui, .ui *)), textarea:where(:not(.ui, .ui *)), select:where(:not(.ui, .ui *)) {
   width: 100%;
   min-height: 40px;
   padding: 9px 11px;
   border: 1px solid var(--line-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--legacy-radius-sm);
   outline: none;
   background: #fff;
   color: var(--ink);
   font-size: 13px;
   transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
-input::placeholder, textarea::placeholder { color: #a0a49d; }
-input:focus, textarea:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
-textarea { min-height: 80px; resize: vertical; }
-select { padding-right: 30px; }
-label { display: block; margin-bottom: 6px; color: var(--muted-strong); font-size: 11px; font-weight: 650; }
+input:where(:not(.ui, .ui *))::placeholder, textarea:where(:not(.ui, .ui *))::placeholder { color: #a0a49d; }
+input:where(:not(.ui, .ui *)):focus, textarea:where(:not(.ui, .ui *)):focus, select:where(:not(.ui, .ui *)):focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+textarea:where(:not(.ui, .ui *)) { min-height: 80px; resize: vertical; }
+select:where(:not(.ui, .ui *)) { padding-right: 30px; }
+label:where(:not(.ui, .ui *)) { display: block; margin-bottom: 6px; color: var(--muted-strong); font-size: 11px; font-weight: 650; }
 .field { margin-bottom: 15px; }
 .inline-field { display: flex; align-items: center; gap: 9px; padding: 8px 0; margin: 0; }
 .inline-field input[type="checkbox"] { width: 17px; min-height: 17px; accent-color: var(--accent); }
@@ -343,15 +353,15 @@ label { display: block; margin-bottom: 6px; color: var(--muted-strong); font-siz
 
 /* ---------- tables ---------- */
 
-table { width: 100%; border-collapse: collapse; }
-th { padding: 0 12px 11px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-align: left; text-transform: uppercase; }
-td { padding: 13px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
-tbody tr { transition: background .15s ease; }
-tbody tr:hover td { background: #faf9f5; }
-td:first-child, th:first-child { padding-left: 4px; }
-td:last-child, th:last-child { padding-right: 4px; }
-tr.row-bad td { background: #fff7f5; }
-tr.clickable:hover td { cursor: pointer; }
+table:where(:not(.ui, .ui *)) { width: 100%; border-collapse: collapse; }
+th:where(:not(.ui, .ui *)) { padding: 0 12px 11px; color: var(--muted); font-size: 10px; font-weight: 700; letter-spacing: .1em; text-align: left; text-transform: uppercase; }
+td:where(:not(.ui, .ui *)) { padding: 13px 12px; border-top: 1px solid var(--line); vertical-align: middle; }
+tbody:where(:not(.ui *)) tr { transition: background .15s ease; }
+tbody:where(:not(.ui *)) tr:hover td { background: #faf9f5; }
+td:where(:not(.ui, .ui *)):first-child, th:where(:not(.ui, .ui *)):first-child { padding-left: 4px; }
+td:where(:not(.ui, .ui *)):last-child, th:where(:not(.ui, .ui *)):last-child { padding-right: 4px; }
+tr.row-bad:where(:not(.ui *)) td { background: #fff7f5; }
+tr.clickable:where(:not(.ui *)):hover td { cursor: pointer; }
 
 /* ---------- campaign workflow ---------- */
 
@@ -416,7 +426,7 @@ tr.clickable:hover td { cursor: pointer; }
   background: rgba(20,34,28,.64);
   backdrop-filter: blur(5px);
 }
-.modal { width: 590px; max-width: 100%; max-height: 88vh; padding: 24px; overflow-y: auto; border: 1px solid rgba(255,255,255,.7); border-radius: 18px; background: var(--surface); box-shadow: var(--shadow); }
+.modal { width: 590px; max-width: 100%; max-height: 88vh; padding: 24px; overflow-y: auto; border: 1px solid rgba(255,255,255,.7); border-radius: 18px; background: var(--surface); box-shadow: var(--legacy-shadow); }
 .modal h1 { font-size: 30px; }
 .modal-close { width: 34px; min-height: 34px; padding: 0; border-radius: 50%; font-size: 20px; font-weight: 400; }
 .tabs { display: flex; gap: 22px; margin-bottom: 22px; border-bottom: 1px solid var(--line); }
@@ -429,7 +439,7 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
 .device { background: #fbfaf6; }
 .device select { width: auto; min-width: 140px; }
 .week { display: grid; grid-template-columns: repeat(7, minmax(135px, 1fr)); gap: 9px; margin-bottom: 16px; overflow-x: auto; padding-bottom: 4px; }
-.day { display: flex; flex-direction: column; gap: 9px; min-height: 170px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: var(--shadow-sm); }
+.day { display: flex; flex-direction: column; gap: 9px; min-height: 170px; padding: 12px; border: 1px solid var(--line); border-radius: 13px; background: var(--surface); box-shadow: var(--legacy-shadow-sm); }
 .day.today { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-soft); }
 .day-head { display: flex; justify-content: space-between; padding-bottom: 7px; border-bottom: 1px solid var(--line); font-size: 11px; }
 .slot { padding: 9px; border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 9px; background: var(--surface-soft); font-size: 11px; }
@@ -445,7 +455,7 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
 .auth-quote p { max-width: 480px; color: #b9cbc2; font-size: 15px; }
 .auth-foot { color: #7e9a8e; font-size: 11px; }
 .auth-main { display: grid; place-items: center; padding: 34px; }
-.auth-card { width: min(430px, 100%); padding: 32px; border: 1px solid var(--line); border-radius: 4px 4px 34px 4px; background: var(--surface); box-shadow: var(--shadow); }
+.auth-card { width: min(430px, 100%); padding: 32px; border: 1px solid var(--line); border-radius: 4px 4px 34px 4px; background: var(--surface); box-shadow: var(--legacy-shadow); }
 .auth-card h1 { margin: 8px 0 10px; font-size: 39px; }
 .auth-card > p { margin-bottom: 24px; }
 .auth-submit { width: 100%; min-height: 44px; margin-top: 4px; }
@@ -514,22 +524,26 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
   --uncertain-soft: #302a43;
   --blue: #82adca;
   --blue-soft: #22333e;
-  --shadow-sm: 0 1px 0 rgba(255,255,255,.02);
-  --shadow: 0 28px 80px rgba(0,0,0,.52);
+  --legacy-shadow-sm: 0 1px 0 rgba(255,255,255,.02);
+  --legacy-shadow:0 28px 80px rgba(0,0,0,.52);
   color-scheme: dark;
 }
 
 :root[data-theme="dark"] body { background: var(--canvas); }
-:root[data-theme="dark"] input,
-:root[data-theme="dark"] textarea,
-:root[data-theme="dark"] select,
-:root[data-theme="dark"] button,
-:root[data-theme="dark"] a.button { background: #111015; color: var(--ink); }
-:root[data-theme="dark"] button.primary { border-color: var(--action); background: var(--action); color: #11110f; }
-:root[data-theme="dark"] button:hover:not(:disabled),
-:root[data-theme="dark"] a.button:hover { background: #1d1924; border-color: #645b70; }
-:root[data-theme="dark"] button.primary:hover:not(:disabled) { border-color: #e3ff78; background: #e3ff78; color: #11110f; }
-:root[data-theme="dark"] tbody tr:hover td { background: #19161e; }
+/* Same `.ui` guard as the light-mode control rules above. These carry higher
+ * specificity (0,2,1), so without it they would repaint shadcn buttons and
+ * inputs inside a migrated surface the moment the theme flipped to dark --
+ * the kind of break that only shows up in one theme. */
+:root[data-theme="dark"] input:where(:not(.ui, .ui *)),
+:root[data-theme="dark"] textarea:where(:not(.ui, .ui *)),
+:root[data-theme="dark"] select:where(:not(.ui, .ui *)),
+:root[data-theme="dark"] button:where(:not(.ui, .ui *)),
+:root[data-theme="dark"] a.button:where(:not(.ui, .ui *)) { background: #111015; color: var(--ink); }
+:root[data-theme="dark"] button.primary:where(:not(.ui, .ui *)) { border-color: var(--action); background: var(--action); color: #11110f; }
+:root[data-theme="dark"] button:where(:not(.ui, .ui *)):hover:not(:disabled),
+:root[data-theme="dark"] a.button:where(:not(.ui, .ui *)):hover { background: #1d1924; border-color: #645b70; }
+:root[data-theme="dark"] button.primary:where(:not(.ui, .ui *)):hover:not(:disabled) { border-color: #e3ff78; background: #e3ff78; color: #11110f; }
+:root[data-theme="dark"] tbody:where(:not(.ui *)) tr:hover td { background: #19161e; }
 :root[data-theme="dark"] .post-card,
 :root[data-theme="dark"] .device { background: #111015; }
 :root[data-theme="dark"] .media-meta { background: #0f0e12; }
@@ -575,7 +589,7 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
   .panel { padding: 16px; }
   .sep { margin-inline: -16px; }
   .panel { overflow-x: auto; }
-  table { min-width: 650px; }
+  table:where(:not(.ui, .ui *)) { min-width: 650px; }
   .post-card .spread, .device .spread, .gate { align-items: flex-start; }
   .gate { flex-direction: column; }
   .modal-back { align-items: flex-end; padding: 0; }
@@ -598,7 +612,7 @@ button.tab.active { border-bottom-color: var(--accent); color: var(--ink); }
   .stat { min-height: 106px; padding: 14px; }
   .stat strong { font-size: 31px; }
   .stat-top { font-size: 9px; }
-  h1 { font-size: 32px; }
+  h1:where(:not(.ui, .ui *)) { font-size: 32px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

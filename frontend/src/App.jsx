@@ -1,5 +1,23 @@
 import { useCallback, useEffect, useState } from "react";
 import { NavLink, Route, Routes, useLocation } from "react-router-dom";
+import {
+  Activity,
+  Bell,
+  CalendarDays,
+  LayoutDashboard,
+  LogOut,
+  Megaphone,
+  Menu,
+  Moon,
+  Pause,
+  Play,
+  Rocket,
+  Settings as SettingsIcon,
+  Smartphone,
+  Sparkles,
+  Sun,
+  X,
+} from "lucide-react";
 import { api, useEvents } from "./api.js";
 import Dashboard from "./pages/Dashboard.jsx";
 import Campaigns from "./pages/Campaigns.jsx";
@@ -11,26 +29,26 @@ import Settings from "./pages/Settings.jsx";
 import CreativeLab from "./pages/CreativeLab.jsx";
 import AuthScreen from "./AuthScreen.jsx";
 
-const NAV = [
-  ["/", "Dashboard", "home"],
-  ["/campaigns", "Campaigns", "campaigns"],
-  ["/creative", "Creative studio", "creative"],
-  ["/calendar", "Calendar", "calendar"],
-  ["/runs", "Publishing runs", "runs"],
-  ["/settings", "Studio settings", "settings"],
-];
+import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
-function NavIcon({ name }) {
-  const paths = {
-    home: <><path d="M3 10.8 12 3l9 7.8"/><path d="M5.5 9.5V21h13V9.5M9.5 21v-6h5v6"/></>,
-    campaigns: <><rect x="3" y="5" width="18" height="15" rx="2"/><path d="M8 5V3m8 2V3M3 10h18m-13 4h3m2 0h3"/></>,
-    creative: <><path d="m12 3 1.45 4.55L18 9l-4.55 1.45L12 15l-1.45-4.55L6 9l4.55-1.45L12 3Z"/><path d="m18.5 15 .72 2.28 2.28.72-2.28.72L18.5 22l-.72-2.28L15.5 19l2.28-.72L18.5 15Z"/></>,
-    calendar: <><rect x="3" y="4" width="18" height="17" rx="2"/><path d="M8 2v4m8-4v4M3 9h18m-13 4h2m4 0h2m-8 4h2m4 0h2"/></>,
-    runs: <><path d="M4 4v16M4 7h10a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h11"/><path d="m17 16 3 3-3 3"/></>,
-    settings: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06-2.83 2.83-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.4 1V21h-4v-.09A1.7 1.7 0 0 0 8.6 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06-2.83-2.83.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1-.4H3v-4h.09A1.7 1.7 0 0 0 4.6 8.6a1.7 1.7 0 0 0-.34-1.88l-.06-.06 2.83-2.83.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .4-1V3h4v.09A1.7 1.7 0 0 0 15.4 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06 2.83 2.83-.06.06A1.7 1.7 0 0 0 19.4 9c.15.37.36.7.6 1 .27.28.62.42 1 .4h.09v4H21a1.7 1.7 0 0 0-1.6.6Z"/></>,
-  };
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>;
-}
+const NAV = [
+  { to: "/", label: "Dashboard", icon: LayoutDashboard },
+  { to: "/campaigns", label: "Campaigns", icon: Megaphone },
+  { to: "/creative", label: "Creative studio", icon: Sparkles },
+  { to: "/calendar", label: "Calendar", icon: CalendarDays },
+  { to: "/runs", label: "Publishing runs", icon: Rocket },
+  { to: "/settings", label: "Studio settings", icon: SettingsIcon },
+];
 
 export default function App() {
   const [authState, setAuthState] = useState(null);
@@ -38,6 +56,7 @@ export default function App() {
   const [bump, setBump] = useState(0);
   const [theme, setTheme] = useState(() => localStorage.getItem("studio-theme-v2") || "dark");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [readCount, setReadCount] = useState(0);
   // The creative studio is a workspace, not a page: it takes the whole window.
   const studio = useLocation().pathname.startsWith("/creative");
@@ -105,85 +124,119 @@ export default function App() {
   }
 
   const unread = Math.max(0, events.length - readCount);
+  const operatorName = authState.user?.username || "Administrator";
 
   return (
-    <div className="shell">
-      <nav className="sidebar">
-        <div className="brand">
-          <div className="brand-mark">P</div>
-          <div className="brand-copy">
-            <b>Publish Studio</b>
-            <span>Your editorial workspace</span>
-          </div>
-        </div>
+    <div className="min-h-screen lg:grid lg:grid-cols-[264px_minmax(0,1fr)]">
+      {/* Backdrop for the mobile drawer. */}
+      {navOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 lg:hidden"
+          onClick={() => setNavOpen(false)}
+          aria-hidden="true"
+        />
+      )}
 
-        <div className="nav-label">Workspace</div>
-        <div className="sidebar-nav">
-          {NAV.map(([to, label, icon]) => (
-            <NavLink
-              key={to}
-              to={to}
-              end={to === "/"}
-              className={({ isActive }) => `navlink ${isActive ? "active" : ""}`}
-              title={label}
-            >
-              <NavIcon name={icon} />
-              <span>{label}</span>
-            </NavLink>
-          ))}
-        </div>
+      <Sidebar
+        open={navOpen}
+        onNavigate={() => setNavOpen(false)}
+        connected={connected}
+        health={health}
+        paused={paused}
+        onTogglePause={togglePause}
+      />
 
-        <div className="sidebar-foot">
-          <div className="status-card">
-            <div className="status-heading">Studio status</div>
-            <div className="status-lines">
-              <div className="status-line">
-                <span className="dot" style={{ color: connected ? "#6fc293" : "#e68b80" }} />
-                {connected ? "Live connection" : "Reconnecting"}
-              </div>
-              <div className="status-line">
-                <span className="dot" style={{ color: health?.adb_available ? "#6fc293" : "#d8aa65" }} />
-                {health?.adb_available ? "Device bridge ready" : "Simulator mode"}
-              </div>
-              <div className="status-line">
-                <span className="dot" style={{ color: (health?.providers_configured ?? 0) > 0 ? "#6fc293" : "#d8aa65" }} />
-                {health?.providers_configured ?? 0} provider{health?.providers_configured === 1 ? "" : "s"} connected
-              </div>
-            </div>
-            <button className={`${paused ? "primary" : "danger"} publish-toggle`} onClick={togglePause} disabled={!health}>
-              {paused ? "Resume publishing" : "Pause publishing"}
-            </button>
-          </div>
-        </div>
-      </nav>
-
+      {/* The `main` class is retained so the legacy page stylesheet keeps its
+       * padding and `.panel + .panel` spacing. Crucially this element is NOT
+       * `.ui` -- the eight unmigrated pages render inside it and still need
+       * styles.css element rules to apply. */}
       <main className={`main ${studio ? "main-studio" : ""}`}>
-        <div className="main-topbar">
-          <div className="workspace-name">Editorial operations</div>
-          <div className="topbar-actions">
-            <button className="icon-button" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} title={`Use ${theme === "dark" ? "light" : "dark"} mode`}>
-              {theme === "dark" ? "☀" : "☾"}
-            </button>
-            <div className="notification-wrap">
-              <button className="icon-button" onClick={openNotifications} title="Notifications" aria-label="Notifications">
-                ♢
-                {unread > 0 && <span className="notification-count">{Math.min(unread, 9)}</span>}
-              </button>
+        <div className="ui mb-8 flex min-h-9 items-center justify-between gap-4 border-b pb-4">
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="lg:hidden"
+              onClick={() => setNavOpen(true)}
+              aria-label="Open navigation"
+            >
+              <Menu />
+            </Button>
+            <div className="flex items-center gap-2.5">
+              <span className="h-px w-5 bg-primary" aria-hidden="true" />
+              <span className="text-xs font-semibold text-muted-foreground">
+                Editorial operations
+              </span>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-1.5">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-full"
+              onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+              title={`Use ${theme === "dark" ? "light" : "dark"} mode`}
+            >
+              {theme === "dark" ? <Sun /> : <Moon />}
+            </Button>
+
+            <div className="relative">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="rounded-full"
+                onClick={openNotifications}
+                title="Notifications"
+                aria-label="Notifications"
+              >
+                <Bell />
+                {unread > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 grid h-4 min-w-4 place-items-center rounded-full bg-primary px-1 text-[9px] font-semibold text-primary-foreground ring-2 ring-background">
+                    {Math.min(unread, 9)}
+                  </span>
+                )}
+              </Button>
               {notificationsOpen && (
                 <NotificationPanel events={events} onClose={() => setNotificationsOpen(false)} />
               )}
             </div>
-            <div className="operator">
-              {authState.user?.username || "Administrator"}
-              <button className="operator-mark" onClick={logout} title="Sign out">PS</button>
-            </div>
+
+            {/* Tailwind v4 puts the important modifier at the end; the
+             * separator's own data-[orientation=vertical]:h-full would
+             * otherwise collapse to zero inside this flex row. */}
+            <Separator orientation="vertical" className="mx-1 h-6!" />
+
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <button className="flex items-center gap-2 rounded-full py-1 pr-1 pl-3 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground">
+                  {operatorName}
+                  <span className="grid size-7 place-items-center rounded-full border bg-card text-[10px] font-bold text-foreground">
+                    PS
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-52">
+                <DropdownMenuLabel className="font-normal">
+                  <div className="text-sm font-medium">{operatorName}</div>
+                  <div className="text-xs text-muted-foreground">Local administrator</div>
+                </DropdownMenuLabel>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={logout}>
+                  <LogOut />
+                  Sign out
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
+
         {paused && (
           <div className="banner warn">
             Publishing is paused. Nothing new will be dispatched until you resume.
           </div>
         )}
+
         <Routes>
           <Route path="/" element={<Dashboard events={events} bump={bump} />} />
           <Route path="/campaigns" element={<Campaigns />} />
@@ -199,27 +252,147 @@ export default function App() {
   );
 }
 
+function Sidebar({ open, onNavigate, connected, health, paused, onTogglePause }) {
+  return (
+    <nav
+      className={cn(
+        "ui fixed inset-y-0 left-0 z-40 flex h-screen w-[264px] flex-col overflow-y-auto border-r bg-card px-3 py-5 transition-transform duration-200",
+        "lg:sticky lg:top-0 lg:z-20 lg:translate-x-0",
+        open ? "translate-x-0" : "-translate-x-full"
+      )}
+    >
+      <div className="flex items-center gap-3 px-2 pb-7">
+        <div className="grid size-9 flex-none place-items-center rounded-[2px_2px_12px_2px] bg-primary font-serif text-xl font-semibold text-primary-foreground">
+          P
+        </div>
+        <div className="min-w-0">
+          <div className="text-[15px] font-semibold tracking-tight">Publish Studio</div>
+          <div className="text-[11px] text-muted-foreground">Your editorial workspace</div>
+        </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="ml-auto lg:hidden"
+          onClick={onNavigate}
+          aria-label="Close navigation"
+        >
+          <X />
+        </Button>
+      </div>
+
+      <div className="px-3 pb-2 text-[10px] font-bold tracking-[0.13em] text-muted-foreground uppercase">
+        Workspace
+      </div>
+
+      <div className="flex flex-col gap-1">
+        {NAV.map(({ to, label, icon: Icon }) => (
+          <NavLink
+            key={to}
+            to={to}
+            end={to === "/"}
+            onClick={onNavigate}
+            title={label}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors",
+                isActive
+                  ? "bg-primary/10 text-primary-ink"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground"
+              )
+            }
+          >
+            <Icon className="size-[18px]" />
+            <span>{label}</span>
+          </NavLink>
+        ))}
+      </div>
+
+      <div className="mt-auto pt-6">
+        <div className="rounded-xl border bg-muted/40 p-3.5">
+          <div className="text-xs font-semibold">Studio status</div>
+          <div className="mt-3 grid gap-2">
+            <StatusLine
+              icon={Activity}
+              ok={connected}
+              label={connected ? "Live connection" : "Reconnecting"}
+            />
+            <StatusLine
+              icon={Smartphone}
+              ok={health?.adb_available}
+              label={health?.adb_available ? "Device bridge ready" : "Simulator mode"}
+            />
+            <StatusLine
+              icon={Sparkles}
+              ok={(health?.providers_configured ?? 0) > 0}
+              label={`${health?.providers_configured ?? 0} provider${
+                health?.providers_configured === 1 ? "" : "s"
+              } connected`}
+            />
+          </div>
+          <Button
+            variant={paused ? "default" : "outline"}
+            size="sm"
+            className="mt-3.5 w-full"
+            onClick={onTogglePause}
+            disabled={!health}
+          >
+            {paused ? <Play /> : <Pause />}
+            {paused ? "Resume publishing" : "Pause publishing"}
+          </Button>
+        </div>
+      </div>
+    </nav>
+  );
+}
+
+function StatusLine({ icon: Icon, ok, label }) {
+  return (
+    <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+      <Icon className={cn("size-3.5", ok ? "text-success-ink" : "text-warning-ink")} />
+      {label}
+    </div>
+  );
+}
+
 function NotificationPanel({ events, onClose }) {
   const items = [...events].reverse().slice(0, 20);
   return (
-    <div className="notification-panel">
-      <div className="spread">
+    <div className="absolute top-11 right-0 z-40 w-[min(390px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-popover p-4 text-popover-foreground shadow-xl">
+      <div className="flex items-center justify-between">
         <div>
-          <h3>Notifications</h3>
-          <div className="small muted">Live studio activity</div>
+          <div className="text-sm font-semibold">Notifications</div>
+          <div className="text-xs text-muted-foreground">Live studio activity</div>
         </div>
-        <button className="ghost small" onClick={onClose}>Close</button>
+        <Button variant="ghost" size="sm" onClick={onClose}>
+          Close
+        </Button>
       </div>
-      <div className="notification-list">
-        {!items.length && <div className="empty">No new activity.</div>}
+      <div className="mt-3 max-h-[420px] overflow-y-auto">
+        {!items.length && (
+          <div className="py-8 text-center text-xs text-muted-foreground">No new activity.</div>
+        )}
         {items.map((event, index) => (
-          <div className="notification-item" key={`${event.kind}-${event.at}-${index}`}>
-            <span className={`notification-dot ${notificationKind(event.kind)}`} />
-            <div>
-              <b>{event.kind.replaceAll(".", " ")}</b>
-              <div className="small muted">{notificationSummary(event)}</div>
+          <div
+            className="grid grid-cols-[8px_1fr_auto] items-start gap-2.5 border-t py-2.5"
+            key={`${event.kind}-${event.at}-${index}`}
+          >
+            <span
+              className={cn(
+                "mt-1.5 size-2 rounded-full",
+                notificationTone(event.kind)
+              )}
+            />
+            <div className="min-w-0">
+              <div className="text-xs font-semibold capitalize">
+                {event.kind.replaceAll(".", " ")}
+              </div>
+              <div className="text-xs break-words text-muted-foreground">
+                {notificationSummary(event)}
+              </div>
             </div>
-            <time>{new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</time>
+            <time className="text-[9px] text-muted-foreground">
+              {new Date(event.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+            </time>
           </div>
         ))}
       </div>
@@ -227,10 +400,11 @@ function NotificationPanel({ events, onClose }) {
   );
 }
 
-function notificationKind(kind) {
-  if (kind.includes("failed") || kind.includes("error")) return "bad";
-  if (kind.includes("finished") || kind.includes("approved") || kind.includes("ready")) return "ok";
-  return "info";
+function notificationTone(kind) {
+  if (kind.includes("failed") || kind.includes("error")) return "bg-destructive";
+  if (kind.includes("finished") || kind.includes("approved") || kind.includes("ready"))
+    return "bg-success";
+  return "bg-primary";
 }
 
 function notificationSummary(event) {

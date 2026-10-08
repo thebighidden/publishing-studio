@@ -20,6 +20,7 @@ from ..devices.base import DeviceDriver, DeviceError, UiNode
 from ..devices.targets import known_targets
 from ..db import get_session, session_scope
 from ..models import Account, Phone, utcnow
+from ..publishing.metrics import describe_booking
 from .schemas import (
     AppIn,
     DragIn,
@@ -61,9 +62,9 @@ def _get(session: Session, phone_id: str) -> Phone:
 
 
 def _free(phone: Phone) -> Phone:
-    """Manual probes must not fight a publishing run for the same screen (R8)."""
+    """Manual probes must not fight a job already on the same screen (R8)."""
     if phone.busy_run_id:
-        raise HTTPException(409, f"{phone.name} is busy with run {phone.busy_run_id}")
+        raise HTTPException(409, f"{phone.name} is busy: {describe_booking(phone.busy_run_id)}")
     return phone
 
 

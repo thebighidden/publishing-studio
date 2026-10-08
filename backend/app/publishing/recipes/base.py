@@ -61,6 +61,90 @@ _STOPWORDS = {
 }
 
 
+@dataclass
+class MetricReading:
+    """What one look at a published post actually showed.
+
+    `found` is separate from the numbers on purpose: a post we could not locate
+    on the grid is not a post with zero likes, and the two must never collapse
+    into the same row. Any counter the screen did not show stays None.
+    """
+
+    found: bool = False
+    likes: Optional[int] = None
+    comments: Optional[int] = None
+    views: Optional[int] = None
+    shares: Optional[int] = None
+    saves: Optional[int] = None
+    approximate: bool = False
+    note: str = ""
+    raw: dict[str, Any] = field(default_factory=dict)
+    matched_by: dict[str, Any] = field(default_factory=dict)
+    screenshot: Optional[str] = None
+
+
+_ABBREV = {"k": 1_000, "m": 1_000_000, "b": 1_000_000_000}
+
+
+def parse_count(raw: str) -> tuple[Optional[int], bool]:
+    """Turn a label such as "1,234 likes", "View all 56 comments" or "12.3K
+    views" into a number, plus whether that number is approximate.
+
+    Returns (None, False) when there is no number at all. "12.3K" becomes
+    12300 with approximate=True: it is the real order of magnitude and worth
+    charting, but it cannot prove a delta of one, so the row says so.
+    """
+    text = (raw or "").strip()
+    if not text:
+        return None, False
+    m = re.search(r"(\d[\d.,\s]*)\s*([KkMmBb])?", text)
+    if not m:
+        return None, False
+    digits, suffix = m.group(1).strip(), (m.group(2) or "").lower()
+    if suffix:
+        # "12.3K" — the dot is a decimal point here, not a thousands separator.
+        number = digits.replace(",", "").replace(" ", "")
+        try:
+            return int(float(number) * _ABBREV[suffix]), True
+        except ValueError:
+            return None, False
+    plain = re.sub(r"[^\d]", "", digits)
+    return (int(plain), False) if plain else (None, False)
+
+
+def read_count(ctx: RunContext, target: str) -> tuple[Optional[int], bool, str]:
+    """Resolve a counter target and read the number off it.
+
+    Returns (value, approximate, raw_text). The raw text is kept by the caller
+    so a surprising number can be audited against what was on the screen.
+    """
+    try:
+        nodes = ctx.driver.screen_state().nodes
+    except Exception:
+        return None, False, ""
+    node = resolve(target, nodes)
+    if node is None:
+        return None, False, ""
+    raw = (node.text or node.content_desc or "").strip()
+    value, approximate = parse_count(raw)
+    return value, approximate, raw
+
+
+def screen_has_token(ctx: RunContext, token: str) -> bool:
+    """Is our own caption on the screen in front of us?"""
+    if not token:
+        return False
+    try:
+        nodes = ctx.driver.screen_state().nodes
+    except Exception:
+        return False
+    needle = token.lower()
+    return any(
+        needle in (n.text or "").lower() or needle in (n.content_desc or "").lower()
+        for n in nodes
+    )
+
+
 def count_on_screen(ctx: RunContext, target: str) -> int:
     try:
         return len(resolve_all(target, ctx.driver.screen_state().nodes))
@@ -117,6 +201,15 @@ class Recipe(ABC):
     @abstractmethod
     def verify(self, ctx: RunContext, payload: PostPayload, baseline: dict[str, Any]) -> Evidence:
         """Go and look. Return what was actually observed."""
+
+    def collect(self, ctx: RunContext, payload: PostPayload, *, max_slots: int = 6) -> MetricReading:
+        """Open our own published post and read its engagement counters.
+
+        The same rule as verification applies: find the post by recognising our
+        own caption on it, never by assuming the newest tile is ours. A platform
+        whose recipe does not implement this reports that plainly.
+        """
+        return MetricReading(found=False, note=f"{self.platform} cannot read performance yet")
 
     def cleanup(self, ctx: RunContext) -> None:
         try:
