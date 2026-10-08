@@ -102,7 +102,9 @@ class GenerationRunner
         $ids = [];
         try {
             foreach ($outputs as $i => $out) {
-                $contents = isset($out['b64']) ? base64_decode($out['b64']) : Http::timeout(300)->get($out['url'])->throw()->body();
+                $contents = isset($out['b64'])
+                    ? base64_decode($out['b64'])
+                    : Http::timeout(300)->withHeaders($out['headers'] ?? [])->get($out['url'])->throw()->body();
                 $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents) ?: $out['mime'];
                 $ids[] = $this->assets->fromContents($user, $contents, $mime, $this->name($generation, $i, $mime), 'generated', [
                     'generation_id' => $generation->id, 'model' => $generation->model, 'prompt' => $generation->prompt,
@@ -153,6 +155,7 @@ class GenerationRunner
         return match ($model['provider']) {
             'higgsfield' => app(HiggsfieldProvider::class),
             'gateway' => app(GatewayImageProvider::class),
+            'google' => app(GoogleGenAiProvider::class),
             default => throw new GenerationFailed('That provider doesn’t make images or video.'),
         };
     }

@@ -23,7 +23,7 @@ use Throwable;
  */
 class ModelRegistry
 {
-    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield'];
+    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield', 'google'];
 
     public function __construct(private readonly TextGenerator $claude, private readonly UsageMeter $usage) {}
 
@@ -32,7 +32,7 @@ class ModelRegistry
      */
     public function all(?string $kind = null): array
     {
-        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield()];
+        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield(), ...$this->google()];
         $scores = ModelEval::query()
             ->selectRaw('model, avg(score) as score')
             ->whereIn('id', ModelEval::query()->selectRaw('max(id)')->groupBy('model', 'task'))
@@ -99,6 +99,7 @@ class ModelRegistry
                 'gateway' => $this->testOpenAi(rtrim((string) config('ai.providers.gateway.url'), '/').'/models', config('ai.providers.gateway.key')),
                 'ollama' => $this->testOllama(),
                 'higgsfield' => app(HiggsfieldClient::class)->test(),
+                'google' => $this->testGoogle(),
             };
             $ok = true;
         } catch (Throwable $e) {
@@ -134,6 +135,7 @@ class ModelRegistry
                     'gateway' => 'Set AI_GATEWAY_URL (an OpenAI-compatible /v1 base) and AI_GATEWAY_KEY.',
                     'ollama' => 'Set OLLAMA_URL to an Ollama server, e.g. http://ollama:11434.',
                     'higgsfield' => 'Set HIGGSFIELD_KEY_ID and HIGGSFIELD_KEY_SECRET, and HIGGSFIELD_PLAN to the models your plan includes.',
+                    'google' => 'Set GEMINI_API_KEY for Gemini image generation and Veo video generation.',
                 ][$p],
                 'test' => $test ? ['ok' => $test->ok, 'message' => $test->message, 'latency_ms' => $test->latency_ms, 'at' => $test->created_at?->toIso8601ZuluString()] : null,
             ];
@@ -147,13 +149,14 @@ class ModelRegistry
             'gateway' => filled(config('ai.providers.gateway.url')),
             'ollama' => filled(config('ai.providers.ollama.url')),
             'higgsfield' => filled(config('ai.providers.higgsfield.key_id')) && filled(config('ai.providers.higgsfield.key_secret')),
+            'google' => filled(config('ai.providers.google.key')),
             default => false,
         };
     }
 
     /* ------------------------------------------------------------------ */
 
-    private function entry(string $provider, string $model, string $label, string $kind, ?string $purpose, bool $available, ?string $reason, ?bool $local = null): array
+    private function entry(string $provider, string $model, string $label, string $kind, ?string $purpose, bool $available, ?string $reason, ?bool $local = null, array $capabilities = []): array
     {
         return [
             'id' => "{$provider}/{$model}",
@@ -166,6 +169,7 @@ class ModelRegistry
             'available' => $available,
             'reason' => $available ? null : $reason,
             'purpose' => $purpose,
+            'capabilities' => (object) $capabilities,
         ];
     }
 
@@ -237,8 +241,19 @@ class ModelRegistry
                 default => null,
             };
 
-            return $this->entry('higgsfield', $id, $m['label'], $m['kind'], $m['purpose'] ?? null, $reason === null, $reason);
+            return $this->entry('higgsfield', $id, $m['label'], $m['kind'], $m['purpose'] ?? null, $reason === null, $reason, capabilities: $m['capabilities'] ?? []);
         })->values()->all();
+    }
+
+    private function google(): array
+    {
+        $configured = $this->configured('google');
+
+        return collect(config('ai.providers.google.models', []))->map(fn (array $m, string $id) => $this->entry(
+            'google', $id, $m['label'], $m['kind'], $m['purpose'] ?? null,
+            $configured, $configured ? null : 'No Gemini API key is set.',
+            capabilities: $m['capabilities'] ?? [],
+        ))->values()->all();
     }
 
     private function testAnthropic(): string
@@ -279,5 +294,22 @@ class ModelRegistry
         }
 
         return 'Connected. '.count($r->json('models', [])).' models installed.';
+    }
+
+    private function testGoogle(): string
+    {
+        if (! $this->configured('google')) {
+            throw new GenerationFailed('No Gemini API key is set.');
+        }
+        $r = Http::timeout(10)->withHeaders(['x-goog-api-key' => config('ai.providers.google.key')])
+            ->acceptJson()->get(rtrim(config('ai.providers.google.url'), '/').'/models');
+        if (in_array($r->status(), [401, 403], true)) {
+            throw new GenerationFailed('Google rejected the Gemini API key.');
+        }
+        if (! $r->successful()) {
+            throw new GenerationFailed("Google answered {$r->status()}.");
+        }
+
+        return 'Connected. Gemini and Veo are ready.';
     }
 }
