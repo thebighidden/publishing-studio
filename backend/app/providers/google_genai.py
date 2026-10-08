@@ -143,6 +143,7 @@ class GoogleGenAIImage(ImageProvider):
         seed: int | None = None,
         image: bytes | None = None,
         image_mime: str = "image/png",
+        params: dict | None = None,
     ) -> MediaResult:
         client = self.google.build()
         _, types = _sdk()
@@ -220,7 +221,9 @@ class GoogleVeoVideo(VideoProvider):
         aspect: str = "9:16",
         duration_s: float = 5.0,
         image: bytes | None = None,
+        params: dict | None = None,
     ) -> MediaResult:
+        params = params or {}
         client = self.google.build()
         _, types = _sdk()
         duration = min((4, 6, 8), key=lambda value: abs(value - float(duration_s)))
@@ -231,7 +234,7 @@ class GoogleVeoVideo(VideoProvider):
             "aspect_ratio": aspect if aspect in {"9:16", "16:9"} else "9:16",
             "resolution": str(self.options.get("resolution") or "720p"),
             "person_generation": "allow_adult",
-            "generate_audio": bool(self.options.get("generate_audio", True)),
+            "generate_audio": bool(params.get("audio", self.options.get("generate_audio", True))),
             "enhance_prompt": True,
             "seed": int(self.options.get("seed") or random.randint(1, 2_147_483_646)),
             "negative_prompt": str(self.options.get("negative_prompt") or PRODUCT_NEGATIVE),

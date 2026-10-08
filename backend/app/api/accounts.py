@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
-from ..config import ACCOUNT_COOLDOWN_SECONDS
+from .. import settings_store
 from ..db import get_session
 from ..devices import registry as devices
 from ..devices.base import DeviceError
@@ -30,7 +30,7 @@ def _out(session: Session, account: Account) -> dict:
     cooldown = 0
     if account.last_published_at:
         gap = (utcnow() - account.last_published_at).total_seconds()
-        cooldown = max(0, int(ACCOUNT_COOLDOWN_SECONDS - gap))
+        cooldown = max(0, int(settings_store.publishing(session)["cooldown_seconds"] - gap))
     return {
         **account.model_dump(),
         "phone_name": phone.name if phone else None,

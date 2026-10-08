@@ -207,6 +207,41 @@ class AdbDriver(DeviceDriver):
             pass
         return "", ""
 
+    # ---------------- publishing readiness ----------------
+
+    GBOARD = "com.google.android.inputmethod.latin/com.android.inputmethod.latin.LatinIME"
+    ANIMATION_SCALES = ("window_animation_scale", "transition_animation_scale", "animator_duration_scale")
+
+    def publishing_readiness(self) -> dict:
+        """Read-only: the phone settings that decide whether automated publishing works."""
+        animations = {k: self._shell("settings", "get", "global", k).strip() for k in self.ANIMATION_SCALES}
+        keyboards = [line.strip() for line in self._shell("ime", "list", "-s").splitlines() if line.strip()]
+        services = self._shell("settings", "get", "secure", "enabled_accessibility_services").strip()
+        package = self._shell("dumpsys", "package", "com.instagram.android", timeout=30)
+        version = re.search(r"versionName=(\S+)", package)
+        return {
+            "animations": animations,
+            "keyboard": self._shell("settings", "get", "secure", "default_input_method").strip(),
+            "keyboards": keyboards,
+            "accessibility_services": [] if services in ("", "null") else services.split(":"),
+            "instagram_version": version.group(1) if version else None,
+        }
+
+    def prepare_for_publishing(self) -> None:
+        """Animations off, so uiautomator can read a still screen; Gboard, so typed text reaches the app."""
+        for key in self.ANIMATION_SCALES:
+            self._shell("settings", "put", "global", key, "0")
+        if self.GBOARD in self._shell("ime", "list", "-s"):
+            self._shell("ime", "set", self.GBOARD)
+
+    def restore_settings(self, before: dict) -> None:
+        for key, value in (before.get("animations") or {}).items():
+            if key in self.ANIMATION_SCALES and value not in ("", "null"):
+                self._shell("settings", "put", "global", key, value)
+        keyboard = before.get("keyboard") or ""
+        if keyboard and keyboard != "null" and keyboard in self._shell("ime", "list", "-s"):
+            self._shell("ime", "set", keyboard)
+
     def focused_input(self) -> Optional[dict]:
         """Instagram 448 leaves its caption field out of the UI dump, so the
         hierarchy cannot show focus. The input method service still knows which

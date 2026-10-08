@@ -169,6 +169,34 @@ class Campaign(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class ComfyWorkflow(SQLModel, table=True):
+    """A ComfyUI workflow exported with "Save (API Format)", and which of its
+    inputs the studio fills in. Selected by name as a ComfyUI provider's model."""
+
+    __tablename__ = "comfy_workflow"
+
+    id: str = Field(default_factory=_uid, primary_key=True)
+    name: str = Field(index=True, unique=True)  # slug used as the provider's model
+    title: str
+    notes: str = ""
+    graph: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    # {"prompt": [node, field], "seed": [...], "width": [...], "height": [...],
+    #  "output": node, "advanced": {"steps": [node, field, default], ...}}
+    mapping: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    created_at: datetime = Field(default_factory=utcnow)
+
+
+class Project(SQLModel, table=True):
+    """A folder of creative work in the studio: one per campaign, client or idea."""
+
+    id: str = Field(default_factory=_uid, primary_key=True)
+    name: str
+    description: str = ""
+    color: str = "#6e47ff"
+    archived: bool = False
+    created_at: datetime = Field(default_factory=utcnow)
+
+
 class MediaAsset(SQLModel, table=True):
     __tablename__ = "media_asset"
 
@@ -184,6 +212,45 @@ class MediaAsset(SQLModel, table=True):
     cost: float = 0.0
     meta: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
     created_at: datetime = Field(default_factory=utcnow)
+    # ---- creative studio ----
+    project_id: Optional[str] = Field(default=None, index=True)
+    favorite: bool = False
+    seed: Optional[int] = None
+    # Everything needed to remix it: the operator's prompt, style, format, model
+    # and advanced settings, separate from the final prompt sent to the model.
+    params: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    parent_id: Optional[str] = None  # the asset this one was remixed from
+    tags: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+    caption_draft: Optional[str] = Field(default=None, sa_column=Column(Text))
+    hashtags_draft: list[str] = Field(default_factory=list, sa_column=Column(JSON))
+
+
+class GenerationJob(SQLModel, table=True):
+    """One studio generation, run by the background worker so it survives the
+    browser closing. `request` is the studio form exactly as submitted."""
+
+    __tablename__ = "generation_job"
+
+    id: str = Field(default_factory=_uid, primary_key=True)
+    status: str = Field(default="queued", index=True)  # queued | running | done | failed | canceled
+    kind: str = "image"
+    batch: str = ""  # jobs asked for together share it
+    label: str = ""  # the operator's prompt, shortened
+    model_label: str = ""
+    lane: str = ""  # jobs in one lane share a concurrency limit (one provider)
+    request: dict[str, Any] = Field(default_factory=dict, sa_column=Column(JSON))
+    reference_file: Optional[str] = None  # an uploaded reference, kept until the job ends
+    reference_mime: Optional[str] = None
+    asset_id: Optional[str] = None
+    error: Optional[str] = Field(default=None, sa_column=Column(Text))
+    attempts: int = 0
+    not_before: Optional[datetime] = None  # retry back-off
+    remote_id: Optional[str] = None  # the provider's request id, when it has one
+    cancel_requested: bool = False
+    dismissed: bool = False  # cleared from the studio's strip; the asset stays in the library
+    created_at: datetime = Field(default_factory=utcnow, index=True)
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
 
 
 class Post(SQLModel, table=True):

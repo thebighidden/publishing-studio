@@ -188,6 +188,7 @@ class SimulatedImage(ImageProvider):
         seed: int | None = None,
         image: bytes | None = None,
         image_mime: str = "image/png",
+        params: dict | None = None,
     ) -> MediaResult:
         w, h = aspect_size(aspect)
         rng = random.Random(seed if seed is not None else _seed_of(prompt))
@@ -257,6 +258,7 @@ class SimulatedVideo(VideoProvider):
         aspect: str = "9:16",
         duration_s: float = 5.0,
         image: bytes | None = None,
+        params: dict | None = None,
     ) -> MediaResult:
         w, h = aspect_size(aspect)
         w, h = w - w % 2, h - h % 2

@@ -6,6 +6,7 @@ from typing import Optional
 
 from sqlmodel import select
 
+from .. import settings_store
 from ..config import SCHEDULER_TICK_SECONDS
 from ..db import session_scope
 from ..models import Account, Phone, Post, PostStatus, Setting, utcnow
@@ -80,6 +81,10 @@ class Scheduler:
         self._reap_workers()
         if self.is_paused():
             return
+        # Outside the posting hours due posts wait, still scheduled, for the window to open.
+        # An operator's "post now" is not held back: that is a human decision for this moment.
+        if not settings_store.within_posting_hours(settings_store.publishing()):
+            return
 
         with session_scope() as session:
             due = session.exec(
@@ -134,6 +139,7 @@ class Scheduler:
         return {
             "running": self.running,
             "paused": self.is_paused(),
+            "within_posting_hours": settings_store.within_posting_hours(settings_store.publishing()),
             "tick_seconds": self.tick,
             "active_jobs": sum(1 for t in self._workers.values() if t.is_alive()),
             "last_tick_at": self.last_tick_at,

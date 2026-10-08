@@ -372,6 +372,110 @@ def key(phone_id: str, body: KeyIn, session: Session = Depends(get_session)) -> 
     return {"keycode": keycode}
 
 
+# ---------------- publishing readiness ----------------
+
+
+def _readiness_report(phone: Phone, state: dict) -> dict:
+    animations_off = all(v in ("0", "0.0") for v in state["animations"].values())
+    on_gboard = state["keyboard"] == AdbDriver.GBOARD
+    has_gboard = AdbDriver.GBOARD in state["keyboards"]
+    services = state["accessibility_services"]
+    checks = [
+        {
+            "id": "animations",
+            "label": "Animations off",
+            "ok": animations_off,
+            "detail": "Instagram's screen is read reliably only when it is still."
+            if animations_off else "Animations are on: screen reads can time out mid-post.",
+        },
+        {
+            "id": "keyboard",
+            "label": "Gboard is the keyboard",
+            "ok": on_gboard,
+            "detail": "Typed captions reach the app."
+            if on_gboard else (f"Current keyboard is {state['keyboard'].split('/')[0]}; captions may not arrive."
+                               if has_gboard else "Gboard is not installed; install it from the Play Store."),
+        },
+        {
+            "id": "accessibility",
+            "label": "An accessibility service is running",
+            "ok": bool(services),
+            "detail": f"{len(services)} running. Instagram only exposes its screen while one is."
+            if services else "None running: Instagram may hide its buttons from the studio. Enable one in Android Settings → Accessibility.",
+        },
+        {
+            "id": "instagram",
+            "label": "Instagram installed",
+            "ok": bool(state["instagram_version"]),
+            "detail": f"Version {state['instagram_version']}" if state["instagram_version"] else "Install Instagram and sign in by hand.",
+        },
+    ]
+    return {
+        "phone_id": phone.id,
+        "checks": checks,
+        "ready": all(c["ok"] for c in checks),
+        "can_restore": bool((phone.options or {}).get("before_prepare")),
+        "raw": state,
+    }
+
+
+def _adb_driver(phone: Phone) -> AdbDriver:
+    driver = devices.driver_for(phone)
+    if not isinstance(driver, AdbDriver):
+        raise HTTPException(400, "this is a simulator; it needs no preparing")
+    return driver
+
+
+@router.get("/{phone_id}/readiness")
+def readiness(phone_id: str, session: Session = Depends(get_session)) -> dict:
+    phone = _get(session, phone_id)
+    driver = _adb_driver(phone)
+    try:
+        return _readiness_report(phone, driver.publishing_readiness())
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+
+
+@router.post("/{phone_id}/prepare")
+def prepare(phone_id: str, session: Session = Depends(get_session)) -> dict:
+    """Animations off and Gboard on. The phone's previous values are kept so this can be undone."""
+    phone = _free(_get(session, phone_id))
+    driver = _adb_driver(phone)
+    try:
+        before = driver.publishing_readiness()
+        driver.prepare_for_publishing()
+        after = driver.publishing_readiness()
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    options = dict(phone.options or {})
+    # Keep the first "before": preparing twice must not overwrite the original values.
+    options.setdefault("before_prepare", {"animations": before["animations"], "keyboard": before["keyboard"]})
+    phone.options = options
+    session.add(phone)
+    session.commit()
+    return _readiness_report(phone, after)
+
+
+@router.post("/{phone_id}/restore")
+def restore(phone_id: str, session: Session = Depends(get_session)) -> dict:
+    phone = _free(_get(session, phone_id))
+    before = (phone.options or {}).get("before_prepare")
+    if not before:
+        raise HTTPException(409, "nothing to restore: this phone was not prepared by the studio")
+    driver = _adb_driver(phone)
+    try:
+        driver.restore_settings(before)
+        after = driver.publishing_readiness()
+    except DeviceError as exc:
+        raise HTTPException(502, str(exc)) from exc
+    options = dict(phone.options or {})
+    options.pop("before_prepare", None)
+    phone.options = options
+    session.add(phone)
+    session.commit()
+    return _readiness_report(phone, after)
+
+
 @router.post("/{phone_id}/swipe")
 def swipe(phone_id: str, body: SwipeIn, session: Session = Depends(get_session)) -> dict:
     phone = _free(_get(session, phone_id))

@@ -1,12 +1,14 @@
 from __future__ import annotations
 
+import copy
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlmodel import Session, select
 
 from ..crypto import encrypt, mask
 from ..db import get_session
 from ..models import ProviderConfig, ProviderKind, utcnow
-from ..providers import registry
+from ..providers import comfyui, registry
 from ..providers.base import ProviderError
 from .schemas import ProviderIn, ProviderOut, ProviderUpdate
 
@@ -47,7 +49,11 @@ def _clear_other_defaults(session: Session, cfg: ProviderConfig) -> None:
 @router.get("/catalog")
 def catalog() -> dict:
     """What the Settings screen offers, so the UI never hardcodes model names."""
-    return {"adapters": registry.CATALOG, "kinds": [k.value for k in ProviderKind]}
+    adapters = copy.deepcopy(registry.CATALOG)
+    for entry in adapters:
+        if entry["adapter"] == "comfyui":
+            entry["models"]["image"] = comfyui.workflow_names()  # built-in plus saved workflows
+    return {"adapters": adapters, "kinds": [k.value for k in ProviderKind]}
 
 
 @router.get("", response_model=list[ProviderOut])

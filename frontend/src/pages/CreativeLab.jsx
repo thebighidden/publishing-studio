@@ -1,308 +1,616 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { api, useResource } from "../api.js";
-import { Banner, Field, Tag, useAction } from "../ui.jsx";
+import Filmstrip from "./studio/Filmstrip.jsx";
+import GeneratePanel, { selectedModel } from "./studio/GeneratePanel.jsx";
+import Inspector from "./studio/Inspector.jsx";
+import Library from "./studio/Library.jsx";
+import PostViaPhone from "./studio/PostViaPhone.jsx";
+import ProjectBar from "./studio/ProjectBar.jsx";
+import Sheet from "./studio/Sheet.jsx";
+import Shortcuts from "./studio/Shortcuts.jsx";
+import Viewer from "./studio/Viewer.jsx";
+import { useQueue } from "./studio/useQueue.js";
+import { loadJSON, rememberPrompt, saveJSON } from "./studio/storage.js";
 
-const IMAGE_ASPECTS = ["1:1", "4:5", "9:16", "16:9"];
-const VIDEO_ASPECTS = ["9:16", "16:9"];
+const DEFAULT_FORM = {
+  kind: "image",
+  prompt: "",
+  style: "none",
+  aspect: "1:1",
+  modelId: "",
+  count: 1,
+  seedMode: "random",
+  seed: "",
+  advanced: {},
+  customSize: false,
+  width: 1024,
+  height: 1024,
+  duration: 6,
+  preserveSubject: true,
+  prepareFrame: true,
+  resolution: "", // empty: the model's default
+  audio: true,
+  // Not saved between visits:
+  reference: null, // { asset } from the library, or { file, url, name } uploaded
+  endFrame: null, // video: { asset } to end on, where the model supports it
+  parentId: "",
+};
+const BACKGROUNDS = ["dark", "checker", "light"];
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+/** One generation request, from the panel's state. */
+function buildRequest(form, models, projectId, seed) {
+  const model = selectedModel(models, form);
+  const advanced = {};
+  if (form.kind === "image" && model?.advanced) {
+    for (const [key, value] of Object.entries(form.advanced || {})) {
+      if (value !== "" && value != null && key in model.advanced) advanced[key] = value;
+    }
+    if (form.customSize && model.custom_size) {
+      advanced.width = Number(form.width);
+      advanced.height = Number(form.height);
+    }
+  }
+  const ref = form.reference;
+  return {
+    prompt: form.prompt.trim(),
+    kind: form.kind,
+    aspect: form.aspect,
+    duration_s: form.duration,
+    provider_id: model?.id || "",
+    project_id: projectId || "",
+    style: form.style || "none",
+    seed,
+    advanced,
+    parent_id: form.parentId || "",
+    source_asset_id: form.kind === "video" && ref?.asset ? ref.asset.id : "",
+    reference_asset_id: form.kind === "image" && ref?.asset ? ref.asset.id : "",
+    end_asset_id: form.kind === "video" && ref && form.endFrame && model?.end_frame ? form.endFrame.asset.id : "",
+    reference: ref?.file || null,
+    preserve_subject: Boolean(form.preserveSubject),
+    prepare_opening_frame: Boolean(form.prepareFrame),
+    resolution: model?.resolutions?.includes(form.resolution) ? form.resolution : "",
+    audio: form.kind === "video" ? Boolean(form.audio) : true,
+  };
+}
+
+/** The library image an asset was made from, if it still exists. */
+async function referenceOf(asset) {
+  const id = asset.params?.source_asset_id || asset.params?.reference_asset_id;
+  if (!id) return null;
+  try {
+    return { asset: await api.get(`/api/creative/assets/${id}`) };
+  } catch {
+    return null;
+  }
+}
+
+function isTyping(target) {
+  return Boolean(target?.closest?.("input, textarea, select, [contenteditable='true']"));
+}
 
 export default function CreativeLab() {
-  const [kind, setKind] = useState("image");
-  const [prompt, setPrompt] = useState("A sunlit café terrace by the sea at golden hour, pastel houses behind, warm tones, shallow depth of field, editorial photo.");
-  const [aspect, setAspect] = useState("1:1");
-  const [duration, setDuration] = useState(6);
-  const [result, setResult] = useState(null);
-  const [skipped, setSkipped] = useState(null);
-  const { data: status } = useResource("/api/creative/status");
-  const { data: assets, reload: reloadAssets } = useResource("/api/creative/assets");
-  const { busy, error, run } = useAction();
+  const { data: models } = useResource("/api/creative/models");
+  const { data: presetData } = useResource("/api/creative/presets");
+  const { data: projects, reload: reloadProjects } = useResource("/api/creative/projects");
+  const [projectId, setProjectId] = useState(() => loadJSON("studio-project", ""));
+  const [form, setForm] = useState(() => ({ ...DEFAULT_FORM, ...loadJSON("studio-form", {}), reference: null, endFrame: null, parentId: "" }));
+  const [selected, setSelected] = useState(null);
+  const [compare, setCompare] = useState(null);
+  const [view, setView] = useState("single");
+  const [zoom, setZoom] = useState("fit");
+  const [background, setBackground] = useState(() => loadJSON("studio-bg", "dark"));
+  const [inspectorOpen, setInspectorOpen] = useState(() => loadJSON("studio-inspector", true));
+  const [focus, setFocus] = useState(false);
+  const [sheet, setSheet] = useState(null); // null | { type: "library" | "pick" } | { type: "post", asset }
+  const [showKeys, setShowKeys] = useState(false);
+  const [dragOver, setDragOver] = useState(false);
+  const [libraryBump, setLibraryBump] = useState(0);
+  const [gridBatch, setGridBatch] = useState(null);
+  const fitRef = useRef(1);
+  const promptRef = useRef(null);
+  const selectedRef = useRef(null);
+  const previousRef = useRef(null);
+  const followBatch = useRef(null);
+  const sheetRef = useRef(null);
+  selectedRef.current = selected;
+  sheetRef.current = sheet;
 
-  const changeKind = (next) => {
-    setKind(next);
-    setAspect(next === "video" ? "9:16" : "1:1");
-    setResult(null);
+  const show = (asset, { manual = true } = {}) => {
+    const current = selectedRef.current;
+    if (current && asset && current.id !== asset.id) previousRef.current = current;
+    setSelected(asset);
+    setZoom("fit");
+    if (manual) {
+      followBatch.current = null;
+      const job = jobs.find((j) => j.asset?.id === asset?.id);
+      if (job) setGridBatch(job.batch);
+    }
+  };
+  const enqueue = (requests, label) => {
+    const batch = queue.enqueue(requests, label);
+    followBatch.current = batch;
+    setGridBatch(batch);
+    return batch;
   };
 
-  const generate = () => run(async () => {
-    const form = new FormData();
-    form.append("prompt", prompt);
-    form.append("kind", kind);
-    form.append("aspect", aspect);
-    form.append("duration_s", String(duration));
-    const asset = await api.form("/api/creative/generate", form);
-    setResult(asset);
-    reloadAssets();
+  const queue = useQueue({
+    onDone: (asset, job) => {
+      setLibraryBump((n) => n + 1);
+      reloadProjects();
+      // The first result of the batch just asked for goes on the canvas; the rest wait in the strip.
+      if (job.batch === followBatch.current) {
+        followBatch.current = null;
+        show(asset, { manual: false });
+      }
+    },
   });
+  const { jobs } = queue;
+  const running = jobs.find((j) => j.status === "running");
+  const queued = jobs.filter((j) => j.status === "queued").length;
+  const results = jobs.filter((j) => j.status === "done").map((j) => j.asset);
 
-  const activeStatus = status?.[kind];
-  const aspects = kind === "video" ? VIDEO_ASPECTS : IMAGE_ASPECTS;
+  // Studio defaults (Settings → Studio) apply to a browser that has no settings of its own yet.
+  const hasOwnForm = useRef(loadJSON("studio-form", null) !== null);
+  const applyDefaults = (d = {}) => setForm((f) => ({
+    ...f,
+    kind: "image",
+    style: d.style || "none",
+    aspect: d.aspect || "1:1",
+    count: d.count || 1,
+    modelId: d.model_id || "",
+    advanced: {},
+    customSize: false,
+    seedMode: "random",
+    seed: "",
+    reference: null,
+    parentId: "",
+  }));
+  useEffect(() => {
+    if (presetData && !hasOwnForm.current) {
+      applyDefaults(presetData.defaults || {});
+      hasOwnForm.current = true;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [presetData]);
+
+  // A project that was deleted elsewhere should not stay selected.
+  useEffect(() => {
+    if (projects && projectId && !projects.some((p) => p.id === projectId)) setProjectId("");
+  }, [projects, projectId]);
+  useEffect(() => saveJSON("studio-project", projectId), [projectId]);
+  useEffect(() => {
+    const { reference, endFrame, parentId, ...rest } = form;
+    saveJSON("studio-form", rest);
+  }, [form]);
+  useEffect(() => saveJSON("studio-bg", background), [background]);
+  useEffect(() => saveJSON("studio-inspector", inspectorOpen), [inspectorOpen]);
+
+  // An uploaded reference holds an object URL until it is replaced.
+  const refUrl = form.reference?.file ? form.reference.url : null;
+  useEffect(() => () => { if (refUrl) URL.revokeObjectURL(refUrl); }, [refUrl]);
+
+  const setReferenceFile = (file) => {
+    if (!file?.type?.startsWith("image/")) return;
+    setForm((f) => ({ ...f, reference: { file, url: URL.createObjectURL(file), name: file.name || "Pasted image" }, parentId: "" }));
+  };
+  const focusPrompt = () => setTimeout(() => promptRef.current?.focus(), 0);
+
+  // ---------- making ----------
+
+  const generate = () => {
+    if (form.prompt.trim().length < 3) {
+      promptRef.current?.focus();
+      return;
+    }
+    const count = form.kind === "video" ? 1 : form.count;
+    const fixed = form.kind === "image" && form.seedMode === "fixed" && form.seed !== "" ? Number(form.seed) : null;
+    const requests = Array.from({ length: count }, (_, i) => buildRequest(form, models, projectId, fixed === null ? null : fixed + i));
+    enqueue(requests, form.prompt.trim());
+    rememberPrompt(form.prompt);
+    setForm((f) => ({ ...f, parentId: "" }));
+  };
+
+  const formFromAsset = (asset) => {
+    const p = asset.params || {};
+    const kind = asset.kind;
+    const modelExists = (models?.[kind] || []).some((m) => m.id === p.provider_id);
+    const adv = { ...(p.advanced || {}) };
+    const custom = Boolean(adv.width && adv.height);
+    const { width, height } = adv;
+    delete adv.width;
+    delete adv.height;
+    return {
+      kind,
+      prompt: p.prompt || asset.prompt || "",
+      style: p.style || "none",
+      aspect: p.aspect || (kind === "video" ? "9:16" : "1:1"),
+      modelId: modelExists ? p.provider_id : "",
+      advanced: adv,
+      customSize: custom,
+      width: width || form.width,
+      height: height || form.height,
+      duration: p.duration_s || 6,
+      resolution: p.resolution || "",
+      audio: p.audio ?? form.audio,
+      endFrame: null,
+      preserveSubject: p.preserve_subject ?? form.preserveSubject,
+      parentId: asset.id,
+    };
+  };
+
+  const remix = (asset) => {
+    setForm((f) => ({
+      ...f,
+      ...formFromAsset(asset),
+      count: 1,
+      seedMode: asset.seed != null ? "fixed" : "random",
+      seed: asset.seed != null ? String(asset.seed) : "",
+      reference: null,
+    }));
+    referenceOf(asset).then((reference) => reference && setForm((f) => (f.parentId === asset.id ? { ...f, reference } : f)));
+    focusPrompt();
+  };
+
+  const moreLikeThis = async (asset) => {
+    const reference = await referenceOf(asset);
+    const base = { ...form, ...formFromAsset(asset), seedMode: "random", reference };
+    const requests = Array.from({ length: 4 }, () => buildRequest(base, models, projectId || asset.project_id || "", null));
+    enqueue(requests, base.prompt);
+    setView("grid");
+  };
+
+  const animate = (asset) => {
+    setForm((f) => ({ ...f, kind: "video", modelId: f.kind === "video" ? f.modelId : "", aspect: "9:16", prompt: asset.params?.prompt || f.prompt, reference: { asset }, parentId: asset.id }));
+    focusPrompt();
+  };
+
+  const useAsReference = (asset) => {
+    setForm((f) => ({
+      ...f,
+      kind: "image",
+      modelId: f.kind === "image" ? f.modelId : "",
+      aspect: f.kind === "image" ? f.aspect : "1:1",
+      reference: { asset },
+      parentId: asset.id,
+      preserveSubject: true,
+    }));
+    focusPrompt();
+  };
+
+  // ---------- the selected asset ----------
+
+  const assetChanged = (asset) => {
+    if (selectedRef.current?.id === asset.id) setSelected(asset);
+    setCompare((c) => (c?.id === asset.id ? asset : c));
+    queue.replaceAsset(asset);
+    setSheet((s) => (s?.type === "post" && s.asset.id === asset.id ? { ...s, asset } : s));
+    setLibraryBump((n) => n + 1);
+    reloadProjects();
+  };
+
+  const assetDeleted = (asset) => {
+    setSelected(null);
+    setCompare((c) => (c?.id === asset.id ? null : c));
+    if (view === "compare") setView("single");
+    queue.dropAsset(asset.id);
+    setLibraryBump((n) => n + 1);
+    reloadProjects();
+  };
+
+  const toggleFavorite = async (asset) => {
+    try {
+      assetChanged(await api.patch(`/api/creative/assets/${asset.id}`, { favorite: !asset.favorite }));
+    } catch { /* the inspector's own toggle reports errors */ }
+  };
+
+  const download = (asset) => {
+    const a = document.createElement("a");
+    a.href = asset.url;
+    a.download = `studio-${asset.id}${asset.kind === "video" ? ".mp4" : ".png"}`;
+    a.click();
+  };
+
+  const startCompare = (b) => {
+    if (!b) return;
+    if (!selectedRef.current) {
+      show(b);
+      return;
+    }
+    if (b.id === selectedRef.current.id || b.kind !== "image" || selectedRef.current.kind !== "image") return;
+    setCompare(b);
+    setView("compare");
+  };
+
+  const toggleCompare = () => {
+    if (view === "compare") {
+      setView("single");
+      return;
+    }
+    const current = selectedRef.current;
+    if (!current) return;
+    const index = results.findIndex((a) => a.id === current.id);
+    const candidates = [compare, previousRef.current, results[index - 1], results[index + 1]];
+    startCompare(candidates.find((a) => a && a.id !== current.id && a.kind === current.kind));
+  };
+
+  const step = (delta) => {
+    if (!results.length) return;
+    const index = results.findIndex((a) => a.id === selectedRef.current?.id);
+    const next = index === -1 ? results[delta > 0 ? 0 : results.length - 1] : results[index + delta];
+    if (next) show(next);
+  };
+
+  const zoomBy = (factor) => setZoom((z) => clamp((z === "fit" ? fitRef.current : z) * factor, 0.05, 8));
+
+  // ---------- keyboard, paste, drop ----------
+
+  const keys = useRef(null);
+  keys.current = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      if (!sheet) generate();
+      return;
+    }
+    if (sheet || showKeys || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (isTyping(e.target)) {
+      // Esc leaves the field so the single-key shortcuts work again.
+      if (e.key === "Escape") e.target.blur();
+      return;
+    }
+    const asset = selectedRef.current;
+    const actions = {
+      ArrowRight: () => step(1),
+      ArrowLeft: () => step(-1),
+      f: () => asset && toggleFavorite(asset),
+      r: () => asset && remix(asset),
+      v: () => asset?.kind === "image" && moreLikeThis(asset),
+      e: () => asset?.kind === "image" && useAsReference(asset),
+      a: () => asset?.kind === "image" && animate(asset),
+      p: () => asset && !asset.meta?.simulated && setSheet({ type: "post", asset }),
+      d: () => asset && download(asset),
+      c: toggleCompare,
+      g: () => setView((v) => (v === "grid" ? "single" : "grid")),
+      0: () => setZoom("fit"),
+      1: () => setZoom(1),
+      "+": () => zoomBy(1.25),
+      "=": () => zoomBy(1.25),
+      "-": () => zoomBy(0.8),
+      b: () => setBackground((b) => BACKGROUNDS[(BACKGROUNDS.indexOf(b) + 1) % BACKGROUNDS.length]),
+      l: () => setSheet({ type: "library" }),
+      i: () => setInspectorOpen((v) => !v),
+      "\\": () => setFocus((v) => !v),
+      "?": () => setShowKeys(true),
+      Escape: () => (view !== "single" ? setView("single") : setFocus(false)),
+    };
+    const action = actions[e.key.length === 1 ? e.key.toLowerCase() : e.key] || actions[e.key];
+    if (action) {
+      e.preventDefault();
+      action();
+    }
+  };
+  useEffect(() => {
+    const onKey = (e) => keys.current(e);
+    const onPaste = (e) => {
+      const file = [...(e.clipboardData?.files || [])].find((f) => f.type.startsWith("image/"));
+      if (file && !sheetRef.current) {
+        e.preventDefault();
+        setReferenceFile(file);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("paste", onPaste);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("paste", onPaste);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const hasFiles = (e) => [...(e.dataTransfer?.types || [])].includes("Files");
+  const dropProps = {
+    onDragOver: (e) => {
+      if (!hasFiles(e) || sheet) return;
+      e.preventDefault();
+      setDragOver(true);
+    },
+    onDragLeave: (e) => {
+      if (!e.currentTarget.contains(e.relatedTarget)) setDragOver(false);
+    },
+    onDrop: (e) => {
+      if (!hasFiles(e) || sheet) return;
+      e.preventDefault();
+      setDragOver(false);
+      setReferenceFile(e.dataTransfer.files?.[0]);
+    },
+  };
+
+  // ---------- render ----------
+
+  const model = selectedModel(models, form);
+  const current = (projects || []).find((p) => p.id === projectId);
+  // The grid shows the batch being worked on, or the whole session when that batch is a single image.
+  const batchJobs = gridBatch ? jobs.filter((j) => j.batch === gridBatch) : [];
+  const gridItems = batchJobs.length > 1 ? batchJobs : jobs;
+  const eta = running ? queue.estimate() : null;
+  const canCompare = Boolean(selected) && (Boolean(compare) || Boolean(previousRef.current) || results.length > 1);
+
+  const empty = running ? (
+    <div className="studio-empty"><div className="spinner" /><span>Generating on {model?.name || "the model"}…</span></div>
+  ) : (
+    <div className="studio-empty">
+      <strong>Start with a prompt.</strong>
+      <span>Results land here. Drop or paste an image anywhere to use it as a reference.</span>
+      <span className="studio-empty-keys"><kbd>Ctrl ↵</kbd> generate · <kbd>L</kbd> library · <kbd>?</kbd> all shortcuts</span>
+    </div>
+  );
 
   return (
-    <>
-      <header className="page-head creative-head">
-        <div>
-          <div className="eyebrow">Creative lab / Aluna workflow</div>
-          <h1>Make the world around it.</h1>
-          <p>Describe a scene, generate it, then post it to Instagram from the phone.</p>
+    <div className={`studio-app ${focus ? "focus" : ""} ${inspectorOpen ? "" : "no-inspector"}`} {...dropProps}>
+      <header className="studio-bar">
+        <div className="studio-bar-left">
+          <span className="studio-bar-title">Creative studio</span>
+          <ProjectBar projects={projects} projectId={projectId} onSelect={setProjectId} onChanged={reloadProjects} />
         </div>
-        <div className="creative-provider-state">
-          <span className={`provider-light ${activeStatus?.simulated ? "simulated" : "live"}`} />
-          <div>
-            <b>{activeStatus?.provider || "Loading provider…"}</b>
-            <small>{activeStatus?.simulated ? "Offline test mode · no credits" : "Connected generation path"}</small>
-          </div>
+        <div className="studio-bar-right">
+          {(running || queued > 0) && (
+            <span className="queue-pill" aria-live="polite">
+              <span className="queue-dot" />
+              {running ? "Generating" : "Waiting"}
+              {queued > 0 && ` · ${queued} queued`}
+              {eta != null && eta > 0 && ` · ~${eta}s`}
+              {queued > 0 && <button className="linklike" onClick={queue.cancelAll}>cancel queued</button>}
+            </span>
+          )}
+          <button className="ghost small" onClick={() => setSheet({ type: "library" })}>Library <kbd>L</kbd></button>
+          <button className={`ghost small ${inspectorOpen ? "on" : ""}`} onClick={() => setInspectorOpen((v) => !v)} aria-pressed={inspectorOpen}>Inspector <kbd>I</kbd></button>
+          <button className={`ghost small ${focus ? "on" : ""}`} onClick={() => setFocus((v) => !v)} aria-pressed={focus} title="Hide everything but the studio">{focus ? "Exit focus" : "Focus"} <kbd>\</kbd></button>
+          <button className="ghost small" onClick={() => setShowKeys(true)} aria-label="Keyboard shortcuts" title="Keyboard shortcuts">?</button>
         </div>
       </header>
 
-      <div className="creative-shell">
-        <section className="creative-stage">
-          <div className="creative-stage-bar">
-            <span>Output / {aspect}</span>
-            {result && <Tag kind={result.meta?.simulated ? "warn" : "ok"}>{result.model}</Tag>}
+      <div className="studio-body">
+        <GeneratePanel
+          models={models}
+          presets={presetData?.presets || []}
+          options={{ samplers: presetData?.samplers || [], schedulers: presetData?.schedulers || [] }}
+          form={form}
+          setForm={setForm}
+          onGenerate={generate}
+          queueBusy={Boolean(running) || queued > 0}
+          onPickReference={() => setSheet({ type: "pick", target: "reference" })}
+          onPickEndFrame={() => setSheet({ type: "pick", target: "end" })}
+          onReset={() => applyDefaults(presetData?.defaults || {})}
+          promptRef={promptRef}
+        />
+
+        <section className="studio-stage" aria-label="Canvas">
+          <div className="stage-toolbar">
+            <span className="stage-info">
+              {selected
+                ? `${selected.kind} · ${selected.width || "?"}×${selected.height || "?"}${selected.duration_s ? ` · ${selected.duration_s}s` : ""} · ${selected.provider || ""}`
+                : current ? current.name : model ? `${model.name} · ${model.reach}` : ""}
+            </span>
+            <div className="stage-views" role="radiogroup" aria-label="View">
+              <button role="radio" aria-checked={view === "single"} className={view === "single" ? "active" : ""} onClick={() => setView("single")}>Single</button>
+              <button role="radio" aria-checked={view === "compare"} className={view === "compare" ? "active" : ""} onClick={toggleCompare} disabled={!canCompare} title="Compare A/B (C)">Compare</button>
+              <button role="radio" aria-checked={view === "grid"} className={view === "grid" ? "active" : ""} onClick={() => setView("grid")} disabled={!gridItems.length} title="Contact sheet (G)">Grid</button>
+            </div>
+            <div className="stage-zoom">
+              <button onClick={() => zoomBy(0.8)} disabled={view !== "single" || selected?.kind !== "image"} aria-label="Zoom out">−</button>
+              <button className="stage-zoom-value" onClick={() => setZoom("fit")} disabled={view !== "single"} title="Fit (0)">{zoom === "fit" ? "Fit" : `${Math.round(zoom * 100)}%`}</button>
+              <button onClick={() => zoomBy(1.25)} disabled={view !== "single" || selected?.kind !== "image"} aria-label="Zoom in">+</button>
+              <button onClick={() => setZoom(1)} disabled={view !== "single" || selected?.kind !== "image"} title="Actual size (1)">1:1</button>
+              <button
+                className={`stage-bg-swatch bg-${background}`}
+                onClick={() => setBackground((b) => BACKGROUNDS[(BACKGROUNDS.indexOf(b) + 1) % BACKGROUNDS.length])}
+                title={`Background: ${background} (B)`}
+                aria-label={`Canvas background: ${background}`}
+              />
+            </div>
           </div>
-          <div className={`creative-output creative-output-${aspect.replace(":", "-")}`}>
-            {result?.kind === "image" && <img src={result.url} alt="Generated creative" />}
-            {result?.kind === "video" && <video src={result.url} controls autoPlay loop muted />}
-            {!result && (
-              <div className="creative-empty">
-                <span>ALUNA / 01</span>
-                <strong>Start from words.</strong>
-                <small>The offline provider is ready for a zero-credit test.</small>
-              </div>
-            )}
-          </div>
-          {result && (
-            <div className="creative-result-meta">
-              <div><span>Provider</span><b>{result.provider}</b></div>
-              <div><span>Model</span><b>{result.model}</b></div>
-              <div><span>Format</span><b>{result.kind === "video" ? `${result.duration_s}s · MP4` : aspect}</b></div>
+
+          {view === "compare" && compare && selected && (
+            <div className="compare-legend">
+              <span><b>A</b> {selected.params?.prompt?.slice(0, 60) || selected.id}</span>
+              <span><b>B</b> {compare.params?.prompt?.slice(0, 60) || compare.id}{compare.seed != null ? ` · seed ${compare.seed}` : ""}</span>
+              <button className="linklike" onClick={() => { const a = selected; show(compare); setCompare(a); }}>swap</button>
             </div>
           )}
+
+          <Viewer
+            asset={selected}
+            compare={compare}
+            view={view === "compare" && !(compare && selected) ? "single" : view}
+            zoom={zoom}
+            setZoom={setZoom}
+            fitRef={fitRef}
+            background={background}
+            gridItems={gridItems}
+            onPick={(asset) => { show(asset); setView("single"); }}
+            empty={empty}
+          />
+
+          <Filmstrip
+            jobs={jobs}
+            selectedId={selected?.id}
+            compareId={view === "compare" ? compare?.id : null}
+            onSelect={(asset) => show(asset)}
+            onCompare={startCompare}
+            onCancel={queue.cancel}
+            onRetry={queue.retry}
+            onClear={queue.clearFinished}
+          />
         </section>
 
-        <aside className="creative-controls">
-          <div className="creative-tabs">
-            <button className={kind === "image" ? "active" : ""} onClick={() => changeKind("image")}>Still image</button>
-            <button className={kind === "video" ? "active" : ""} onClick={() => changeKind("video")}>Motion / Veo</button>
-          </div>
-
-          <div className="creative-control-block">
-            <div className="control-index">01</div>
-            <div className="control-body">
-              <label>Creative direction</label>
-              <textarea className="creative-prompt" value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={6} />
-            </div>
-          </div>
-
-          <div className="creative-control-block">
-            <div className="control-index">02</div>
-            <div className="control-body">
-              <label>Format</label>
-              <div className="choice-row">
-                {aspects.map((value) => <button key={value} className={aspect === value ? "active" : ""} onClick={() => setAspect(value)}>{value}</button>)}
-              </div>
-              {kind === "video" && (
-                <div className="duration-row">
-                  <label>Duration</label>
-                  <div className="choice-row">
-                    {[4, 6, 8].map((value) => <button key={value} className={duration === value ? "active" : ""} onClick={() => setDuration(value)}>{value}s</button>)}
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-
-          <Banner error={error} />
-          {activeStatus?.simulated && <div className="creative-note"><b>Test mode</b> {kind === "image"
-            ? "This makes a placeholder, not a real image. Add your ComfyUI server in Settings → AI providers as the default image provider."
-            : "This makes a placeholder video, not a real one. Add a video provider (Google Veo or Higgsfield) in Settings → AI providers."}</div>}
-          <button className="creative-generate" onClick={generate} disabled={busy || prompt.trim().length < 3}>
-            <span>{busy ? "Generating…" : `Generate ${kind}`}</span><span>↗</span>
-          </button>
-        </aside>
+        {inspectorOpen && (selected ? (
+          <Inspector
+            asset={selected}
+            projects={projects}
+            presets={presetData?.presets}
+            onChanged={assetChanged}
+            onDeleted={assetDeleted}
+            onRemix={remix}
+            onMoreLikeThis={moreLikeThis}
+            onAnimate={animate}
+            onReference={useAsReference}
+            onPost={(asset) => setSheet({ type: "post", asset })}
+            onOpen={(asset) => show(asset)}
+            lineageBump={libraryBump}
+          />
+        ) : (
+          <aside className="studio-inspector inspector-empty" aria-label="Selected asset">
+            <span className="studio-label">Nothing selected</span>
+            <p className="muted small">Pick a result from the strip below, or open the library to bring back earlier work.</p>
+            <button className="small" onClick={() => setSheet({ type: "library" })}>Open library</button>
+            {results.length > 0 && (
+              <dl className="studio-facts">
+                <dt>Session</dt>
+                <dd>{results.length} made · {results.filter((a) => a.favorite).length} favourited</dd>
+              </dl>
+            )}
+          </aside>
+        ))}
       </div>
 
-      {result && skipped !== result.id && (
-        <PostViaPhone key={result.id} asset={result} onSkip={() => setSkipped(result.id)} />
-      )}
-
-      <section className="creative-history">
-        <div className="spread">
-          <div><div className="eyebrow">Recent output</div><h2>Your contact sheet</h2></div>
-          <span className="small muted">Newest first · campaign and lab assets</span>
-        </div>
-        {!assets?.length ? <div className="empty">Your generated work will appear here.</div> : (
-          <div className="contact-sheet">
-            {assets.slice(0, 12).map((asset) => (
-              <button key={asset.id} className="contact-frame" onClick={() => setResult(asset)}>
-                {asset.kind === "image" ? <img src={asset.url} alt="" /> : <video src={asset.url} muted />}
-                <span>{asset.kind} · {asset.model}</span>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-    </>
-  );
-}
-
-const OUTCOME_TEXT = {
-  confirmed: "Posted. The phone checked the profile afterwards and found it live.",
-  failed: "Not posted.",
-  uncertain: "Sent, but it could not be confirmed live. Check the account on the phone before trying again, so it isn't posted twice.",
-};
-
-/** After a generation: ask whether to post it to Instagram through the account's phone, or skip. */
-function PostViaPhone({ asset, onSkip }) {
-  const { data: phones } = useResource("/api/phones");
-  const { data: accounts } = useResource("/api/accounts");
-  const [phoneId, setPhoneId] = useState(() => {
-    try { return localStorage.getItem("creative-post-phone") || ""; } catch { return ""; }
-  });
-  const [handle, setHandle] = useState("");
-  const [caption, setCaption] = useState("");
-  const [hashtags, setHashtags] = useState("");
-  const [postId, setPostId] = useState(null);
-  const [run, setRun] = useState(null);
-  const [startError, setStartError] = useState(null);
-  const { busy, error, run: act } = useAction();
-
-  const instagramByPhone = Object.fromEntries(
-    (accounts || []).filter((a) => a.platform === "instagram" && a.phone_id).map((a) => [a.phone_id, a]),
-  );
-  const phoneList = phones || [];
-  const phone = phoneList.find((p) => p.id === phoneId) || phoneList.find((p) => instagramByPhone[p.id]) || phoneList[0];
-  const linked = phone ? instagramByPhone[phone.id] : null;
-  const simulated = Boolean(asset.meta?.simulated);
-
-  const choosePhone = (id) => {
-    setPhoneId(id);
-    try { localStorage.setItem("creative-post-phone", id); } catch { /* remembered for convenience only */ }
-  };
-
-  // Follow the phone run until it finishes; the outcome comes from the run, not from the request returning.
-  useEffect(() => {
-    if (!postId) return undefined;
-    let stopped = false;
-    let polls = 0;
-    const poll = async () => {
-      if (stopped) return;
-      polls += 1;
-      try {
-        const [latest] = await api.get(`/api/runs?post_id=${postId}&limit=1`);
-        if (latest) {
-          const detail = await api.get(`/api/runs/${latest.id}`);
-          if (stopped) return;
-          setRun(detail);
-          if (detail.status === "finished") return;
-        } else if (polls > 8) {
-          const post = await api.get(`/api/posts/${postId}`);
-          if (post.last_error) {
-            setStartError(post.last_error);
-            return;
-          }
-        }
-      } catch {
-        // a dropped poll is retried on the next tick
-      }
-      setTimeout(poll, 2000);
-    };
-    poll();
-    return () => { stopped = true; };
-  }, [postId]);
-
-  const post = () => act(async () => {
-    const res = await api.post(`/api/creative/assets/${asset.id}/publish`, {
-      ...(linked ? { account_id: linked.id } : { phone_id: phone.id, handle }),
-      caption,
-      hashtags: hashtags.split(/[\s,]+/).filter(Boolean),
-    });
-    setPostId(res.post_id);
-  });
-
-  const lastStep = run?.steps?.[run.steps.length - 1];
-  const finished = run?.status === "finished";
-
-  return (
-    <section className="panel post-via-phone">
-      <div className="spread">
-        <div>
-          <div className="eyebrow">Next step</div>
-          <h2>Post this to Instagram via phone?</h2>
-        </div>
-        {!postId && <button className="ghost" onClick={onSkip}>Skip</button>}
-      </div>
-
-      {simulated ? (
-        <p className="small muted">
-          This image came from the offline test provider, so it can't be posted. Add your ComfyUI server under
-          Settings → AI providers (ComfyUI server, image, default) and generate again.
-        </p>
-      ) : !postId ? (
-        <>
-          {phoneList.length === 0 ? (
-            <p className="small muted">No phone yet. Connect one in Settings → Phones.</p>
-          ) : (
-            <div className="post-via-phone-grid">
-              <Field
-                label="Phone"
-                hint={phone?.driver === "simulator"
-                  ? "Simulator: nothing reaches real Instagram"
-                  : "Real phone: this posts to the real Instagram account"}
-              >
-                <select value={phone?.id || ""} onChange={(e) => choosePhone(e.target.value)}>
-                  {phoneList.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} · {p.driver === "simulator" ? "simulator" : "real phone"}{p.online ? "" : " · offline"}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-              {linked ? (
-                <Field label="Instagram account" hint={linked.logged_in ? "Sign-in confirmed on the phone" : "Sign-in not checked yet: Settings → Accounts → Check login"}>
-                  <input value={`@${linked.handle}`} readOnly />
-                </Field>
-              ) : (
-                <Field label="Instagram account on this phone" hint="Must already be signed in on the phone. It's linked to this phone when you post.">
-                  <input value={handle} onChange={(e) => setHandle(e.target.value)} placeholder="@your_test_account" />
-                </Field>
-              )}
-              <Field label="Hashtags" hint="Separated by spaces or commas">
-                <input value={hashtags} onChange={(e) => setHashtags(e.target.value)} placeholder="#studio #newdrop" />
-              </Field>
-              <Field label={`Caption · ${caption.length} / 2200`}>
-                <textarea value={caption} maxLength={2200} rows={3} onChange={(e) => setCaption(e.target.value)} placeholder="Write the caption the phone will type" />
-              </Field>
-            </div>
-          )}
-          <Banner error={error} />
-          <div className="row end">
-            <button className="ghost" onClick={onSkip}>Skip</button>
-            <button className="primary" onClick={post} disabled={busy || !phone || (!linked && !handle.trim().replace(/^@/, ""))}>
-              {busy ? "Starting…" : `Approve and post from ${phone?.name || "phone"}`}
-            </button>
-          </div>
-          <p className="small muted">Approving here counts as the content approval for this one post. The phone opens Instagram, adds the image and caption, publishes, then checks the profile to confirm.</p>
-        </>
-      ) : (
-        <div className="post-via-phone-status">
-          <div className="row">
-            <Tag kind={finished ? run.outcome : startError ? "failed" : "running"}>
-              {finished ? run.outcome : startError ? "not started" : "publishing"}
-            </Tag>
-            <span className="small">
-              {startError
-                ? startError
-                : finished
-                  ? `${OUTCOME_TEXT[run.outcome] || ""} ${run.outcome === "confirmed" ? "" : run.error || run.evidence?.note || ""}`
-                  : run
-                    ? `@${run.handle} on ${run.phone_name}${lastStep ? ` · step ${lastStep.n}: ${lastStep.action}` : " · starting"}`
-                    : "Booking the phone…"}
-            </span>
-          </div>
-          {run && <Link className="small" to={`/runs/${run.id}`}>Open the run record with screenshots →</Link>}
+      {dragOver && (
+        <div className="studio-drop" aria-hidden="true">
+          <span>Drop to use as the {form.kind === "video" ? "start frame" : "reference image"}</span>
         </div>
       )}
-    </section>
+
+      {sheet?.type === "library" && (
+        <Sheet eyebrow={current ? current.name : "All projects"} title="Library" onClose={() => setSheet(null)}>
+          <Library
+            projectId={projectId}
+            projects={projects}
+            bump={libraryBump}
+            selectedId={selected?.id}
+            onOpen={(asset) => { show(asset); setView("single"); setSheet(null); }}
+            onCompare={(asset) => { startCompare(asset); setSheet(null); }}
+          />
+        </Sheet>
+      )}
+      {sheet?.type === "pick" && (
+        <Sheet eyebrow={sheet.target === "end" ? "End frame" : form.kind === "video" ? "Start frame" : "Reference"} title="Pick an image" onClose={() => setSheet(null)}>
+          <Library
+            projectId={projectId}
+            projects={projects}
+            bump={libraryBump}
+            pickKind="image"
+            onOpen={(asset) => {
+              setForm((f) => (sheet.target === "end" ? { ...f, endFrame: { asset } } : { ...f, reference: { asset }, parentId: asset.id }));
+              setSheet(null);
+            }}
+          />
+        </Sheet>
+      )}
+      {sheet?.type === "post" && (
+        <Sheet side="right" bare title="Post to Instagram" onClose={() => setSheet(null)}>
+          <PostViaPhone key={sheet.asset.id} asset={sheet.asset} onSkip={() => setSheet(null)} onAssetChanged={assetChanged} />
+        </Sheet>
+      )}
+      {showKeys && <Shortcuts onClose={() => setShowKeys(false)} />}
+    </div>
   );
 }

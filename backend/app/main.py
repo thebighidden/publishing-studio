@@ -9,7 +9,8 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth as studio_auth
-from .api import accounts, auth, campaigns, creative, phones, providers, runs, system
+from . import creative_jobs
+from .api import accounts, auth, campaigns, creative, phones, providers, runs, system, workflows
 from .config import EVIDENCE_DIR, MEDIA_DIR
 from .db import init_db
 from .devices.base import DeviceError
@@ -25,9 +26,11 @@ async def lifespan(_app: FastAPI):
     seed_if_empty()
     events.bind_loop(asyncio.get_running_loop())
     scheduler.start()
+    creative_jobs.worker.start()
     try:
         yield
     finally:
+        creative_jobs.worker.shutdown()
         scheduler.shutdown()
 
 
@@ -77,6 +80,7 @@ app.include_router(auth.router)
 app.include_router(system.router)
 app.include_router(providers.router)
 app.include_router(creative.router)
+app.include_router(workflows.router)
 app.include_router(phones.router)
 app.include_router(accounts.router)
 app.include_router(campaigns.router)

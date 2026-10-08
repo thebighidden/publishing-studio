@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { NavLink, Route, Routes } from "react-router-dom";
+import { NavLink, Route, Routes, useLocation } from "react-router-dom";
 import { api, useEvents } from "./api.js";
 import Dashboard from "./pages/Dashboard.jsx";
 import Campaigns from "./pages/Campaigns.jsx";
@@ -14,7 +14,7 @@ import AuthScreen from "./AuthScreen.jsx";
 const NAV = [
   ["/", "Dashboard", "home"],
   ["/campaigns", "Campaigns", "campaigns"],
-  ["/creative", "Creative lab", "creative"],
+  ["/creative", "Creative studio", "creative"],
   ["/calendar", "Calendar", "calendar"],
   ["/runs", "Publishing runs", "runs"],
   ["/settings", "Studio settings", "settings"],
@@ -39,6 +39,8 @@ export default function App() {
   const [theme, setTheme] = useState(() => localStorage.getItem("studio-theme-v2") || "dark");
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [readCount, setReadCount] = useState(0);
+  // The creative studio is a workspace, not a page: it takes the whole window.
+  const studio = useLocation().pathname.startsWith("/creative");
 
   // Anything that changes the world re-reads the header, so the paused flag and
   // the queue counts are never stale while a run is in flight.
@@ -155,7 +157,7 @@ export default function App() {
         </div>
       </nav>
 
-      <main className="main">
+      <main className={`main ${studio ? "main-studio" : ""}`}>
         <div className="main-topbar">
           <div className="workspace-name">Editorial operations</div>
           <div className="topbar-actions">

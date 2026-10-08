@@ -6,7 +6,8 @@ from typing import Optional
 
 from sqlmodel import Session, select
 
-from ..config import ACCOUNT_COOLDOWN_SECONDS, MEDIA_DIR, RUN_STEP_BUDGET, RUN_TIMEOUT_SECONDS
+from .. import settings_store
+from ..config import MEDIA_DIR
 from ..devices.base import DeviceError
 from ..devices.registry import driver_for
 from ..models import (
@@ -27,10 +28,6 @@ from .context import BudgetExceeded, RunContext, StepRecord
 from .recipes.base import Evidence, PostPayload, PublishFailed, Recipe
 from .recipes.instagram import InstagramRecipe
 from .recipes.x import XRecipe
-
-MAX_ATTEMPTS = 3
-RETRY_BACKOFF_SECONDS = [60, 180]
-
 
 class NotPublishable(RuntimeError):
     """A guard refused the run. Never retried automatically."""
@@ -67,12 +64,13 @@ def preflight(session: Session, post: Post) -> tuple[Account, Phone]:
         raise NotPublishable(f"phone {phone.name} is busy with run {phone.busy_run_id}")
 
     # R3: no tight posting loops on one account.
+    cooldown = settings_store.publishing(session)["cooldown_seconds"]
     if account.last_published_at:
         gap = (utcnow() - account.last_published_at).total_seconds()
-        if gap < ACCOUNT_COOLDOWN_SECONDS:
+        if gap < cooldown:
             raise NotPublishable(
                 f"@{account.handle} published {int(gap)}s ago; "
-                f"cooling down for {ACCOUNT_COOLDOWN_SECONDS}s"
+                f"cooling down for {cooldown}s"
             )
     return account, phone
 
@@ -138,14 +136,15 @@ def execute(session: Session, post: Post, *, manual: bool = False) -> Run:
     error: Optional[str] = None
     retryable = True
 
+    rules = settings_store.publishing(session)
     try:
         driver = driver_for(phone)
         ctx = RunContext(
             run_id=run.id,
             driver=driver,
             sink=sink,
-            step_budget=RUN_STEP_BUDGET,
-            timeout_s=RUN_TIMEOUT_SECONDS,
+            step_budget=rules["step_budget"],
+            timeout_s=rules["run_timeout_seconds"],
         )
 
         payload = PostPayload(
@@ -218,7 +217,7 @@ def execute(session: Session, post: Post, *, manual: bool = False) -> Run:
         # is how an account ends up double-posting.
         post.status = PostStatus.uncertain
     else:
-        post.status = _failed_status(post, retryable)
+        post.status = _failed_status(post, retryable, rules)
 
     phone.busy_run_id = None
     session.add_all([run, post, phone])
@@ -264,11 +263,12 @@ def _reached_submit(error: str) -> bool:
     return "budget" in error.lower() or "timeout" in error.lower() or "timed out" in error.lower()
 
 
-def _failed_status(post: Post, retryable: bool) -> PostStatus:
-    if retryable and post.attempts < MAX_ATTEMPTS:
+def _failed_status(post: Post, retryable: bool, rules: dict) -> PostStatus:
+    backoff = rules["retry_backoff_seconds"]
+    if retryable and post.attempts < rules["max_attempts"]:
         # Back to the queue with a delay (feature fa08).
-        idx = min(post.attempts - 1, len(RETRY_BACKOFF_SECONDS) - 1)
-        post.scheduled_at = utcnow() + timedelta(seconds=RETRY_BACKOFF_SECONDS[idx])
+        idx = min(post.attempts - 1, len(backoff) - 1)
+        post.scheduled_at = utcnow() + timedelta(seconds=backoff[idx])
         return PostStatus.scheduled
     return PostStatus.failed
 

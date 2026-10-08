@@ -1,11 +1,17 @@
 from __future__ import annotations
 
+import io
 import time
+from dataclasses import replace
 from typing import Any, Optional
 
 import httpx
+from PIL import Image, UnidentifiedImageError
 
+from . import control
+from . import higgsfield_catalog as catalog
 from .base import ImageProvider, MediaResult, NotConfigured, ProviderError, VideoProvider
+from .higgsfield_catalog import ModelSpec
 
 BASE_URL = "https://api.higgsfield.ai"
 
@@ -13,12 +19,9 @@ BASE_URL = "https://api.higgsfield.ai"
 TERMINAL_OK = {"completed"}
 TERMINAL_BAD = {"failed", "nsfw", "canceled"}
 
-DEFAULT_IMAGE_PATH = "/higgsfield-ai/soul/standard"
+DEFAULT_IMAGE_PATH = "/higgsfield-ai/soul/v2/standard"
 DEFAULT_T2V_PATH = "/minimax/hailuo-2.3/standard/text-to-video"
 DEFAULT_I2V_PATH = "/minimax/hailuo-2.3/standard/image-to-video"
-
-# Only these aspect ratios are accepted by soul/standard.
-IMAGE_ASPECTS = {"1:1", "4:3", "3:4", "3:2", "2:3", "5:4", "4:5", "16:9", "9:16", "21:9"}
 
 UPLOAD_TYPES = {
     ".jpg": "image/jpeg",
@@ -27,6 +30,8 @@ UPLOAD_TYPES = {
     ".webp": "image/webp",
     ".gif": "image/gif",
 }
+_EXT_FOR_MIME = {"image/jpeg": ".jpg", "image/jpg": ".jpg", "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif"}
+_PIL_FORMATS = {"PNG": (".png", "image/png"), "JPEG": (".jpg", "image/jpeg"), "WEBP": (".webp", "image/webp")}
 
 
 def _is_concurrency_error(detail: str) -> bool:
@@ -83,11 +88,21 @@ class _HiggsfieldClient:
         request_id = data.get("request_id")
         if not request_id:
             raise ProviderError(f"no request_id in submission response: {str(data)[:300]}")
+        job = control.current.get()
+        if job is not None:
+            job.on_remote_id(request_id)
         return request_id
+
+    def cancel(self, request_id: str) -> bool:
+        """Only works while Higgsfield still has the request queued."""
+        with self._client() as c:
+            resp = c.post(f"/requests/{request_id}/cancel")
+        return resp.status_code < 400
 
     def poll(self, request_id: str, timeout_s: float, interval: float = 5.0) -> dict[str, Any]:
         deadline = time.monotonic() + timeout_s
         last_status = "unknown"
+        job = control.current.get()
         with self._client() as c:
             while time.monotonic() < deadline:
                 resp = c.get(f"/requests/{request_id}/status")
@@ -101,16 +116,24 @@ class _HiggsfieldClient:
                 last_status = data.get("status", "unknown")
                 if last_status in TERMINAL_OK:
                     return data
+                if last_status == "canceled" and job is not None and job.cancelled():
+                    raise control.Cancelled()
                 if last_status in TERMINAL_BAD:
                     reason = data.get("error") or last_status
+                    if last_status == "nsfw":
+                        reason = "the prompt or the result was blocked by the model's content filter"
                     raise ProviderError(
-                        f"Higgsfield job {request_id} ended as {last_status}: {reason}",
+                        f"Higgsfield job ended as {last_status}: {reason}",
                         retryable=False,
                     )
+                if job is not None and job.cancelled():
+                    if last_status == "queued" and self.cancel(request_id):
+                        raise control.Cancelled()
+                    # Already generating: Higgsfield cannot stop it, so let it finish.
                 time.sleep(interval)
         raise ProviderError(
             f"Higgsfield job {request_id} still {last_status} after {timeout_s:.0f}s",
-            retryable=True,
+            retryable=False,  # it may still finish and be billed; do not submit a second one
         )
 
     def upload(self, data: bytes, ext: str) -> str:
@@ -157,6 +180,22 @@ class _HiggsfieldClient:
         )
 
 
+def _spec_for(kind: str, model: str, spec: Optional[ModelSpec]) -> ModelSpec:
+    if spec is not None:
+        return spec
+    return catalog.find(model) or catalog.generic(kind, model)
+
+
+def _describe_image(data: bytes) -> tuple[str, str, Optional[int], Optional[int]]:
+    """The real format and size of a downloaded image (results may be JPEG or WebP)."""
+    try:
+        with Image.open(io.BytesIO(data)) as img:
+            ext, mime = _PIL_FORMATS.get(img.format or "", (".png", "image/png"))
+            return ext, mime, img.width, img.height
+    except (UnidentifiedImageError, OSError):
+        return ".png", "image/png", None, None
+
+
 class HiggsfieldImage(ImageProvider):
     def __init__(
         self,
@@ -164,12 +203,39 @@ class HiggsfieldImage(ImageProvider):
         base_url: str = BASE_URL,
         model: str = DEFAULT_IMAGE_PATH,
         options: Optional[dict[str, Any]] = None,
+        spec: Optional[ModelSpec] = None,
     ):
         self.client = _HiggsfieldClient(api_key, base_url)
         # `model` is the endpoint path. New models are new paths, so a team can
         # point at one without a code change.
         self.model = model or DEFAULT_IMAGE_PATH
+        self.spec = _spec_for("image", self.model, spec)
         self.options = options or {}
+
+    def build_body(self, prompt: str, aspect: str, seed: Optional[int], reference_urls: list[str], params: dict) -> tuple[dict[str, Any], dict[str, Any]]:
+        spec = self.spec
+        body: dict[str, Any] = {"prompt": prompt}
+        meta: dict[str, Any] = {}
+        if spec.aspects:
+            sent = catalog.nearest_aspect(aspect, spec.aspects)
+            body["aspect_ratio"] = sent
+            if sent != aspect:
+                meta["aspect_adjusted"] = {"asked": aspect, "sent": sent}
+        resolution = params.get("resolution") or self.options.get("resolution") or spec.default_resolution
+        if spec.resolutions and resolution in spec.resolutions:
+            body["resolution"] = resolution
+        fitted = catalog.fit_seed(seed, spec.seed_range)
+        if fitted is not None:
+            body["seed"] = fitted
+            meta["seed"] = fitted
+        if spec.batch_field:
+            body[spec.batch_field] = 1
+        if reference_urls and spec.reference:
+            refs = reference_urls[: spec.max_references or 1]
+            body[spec.reference] = refs if spec.reference.endswith("s") else refs[0]
+        body.update(spec.extra)
+        body.update(self.options.get("extra_body") or {})
+        return body, meta
 
     def generate(
         self,
@@ -179,29 +245,32 @@ class HiggsfieldImage(ImageProvider):
         seed: int | None = None,
         image: bytes | None = None,
         image_mime: str = "image/png",
+        params: dict | None = None,
     ) -> MediaResult:
-        body: dict[str, Any] = {"prompt": prompt, "num_images": 1}
-        if aspect in IMAGE_ASPECTS:
-            body["aspect_ratio"] = aspect
-        resolution = self.options.get("resolution", "2K")
-        if resolution:
-            body["resolution"] = resolution
-        body.update(self.options.get("extra_body") or {})
+        params = params or {}
+        refs: list[str] = []
+        if image and self.spec.reference:
+            refs.append(self.client.upload(image, _EXT_FOR_MIME.get(image_mime, ".png")))
+        body, meta = self.build_body(prompt, aspect, seed, refs, params)
+        path = self.spec.path
 
-        request_id = self.client.submit(self.model, body)
-        result = self.client.poll(
-            request_id, timeout_s=float(self.options.get("timeout_s", 600))
-        )
+        request_id = self.client.submit(path, body)
+        result = self.client.poll(request_id, timeout_s=float(self.options.get("timeout_s", 600)))
         images = result.get("images") or []
         if not images or not images[0].get("url"):
             raise ProviderError(f"job completed with no image: {str(result)[:300]}")
         url = images[0]["url"]
+        data = self.client.download(url)
+        ext, mime, width, height = _describe_image(data)
         return MediaResult(
-            data=self.client.download(url),
-            ext=".png",
-            mime="image/png",
-            model=self.model,
-            meta={"request_id": request_id, "source_url": url, "aspect": aspect},
+            data=data,
+            ext=ext,
+            mime=mime,
+            model=path,
+            width=width,
+            height=height,
+            meta={**meta, "request_id": request_id, "source_url": url, "aspect": body.get("aspect_ratio", aspect),
+                  "reference_used": bool(refs)},
         )
 
     def check(self) -> str:
@@ -215,14 +284,46 @@ class HiggsfieldVideo(VideoProvider):
         base_url: str = BASE_URL,
         model: str = DEFAULT_T2V_PATH,
         options: Optional[dict[str, Any]] = None,
+        spec: Optional[ModelSpec] = None,
     ):
         self.client = _HiggsfieldClient(api_key, base_url)
         self.model = model or DEFAULT_T2V_PATH
         self.options = options or {}
+        self.spec = _spec_for("video", self.model, spec)
+        if not self.spec.i2v_path and self.options.get("image_to_video_path"):
+            self.spec = replace(self.spec, i2v_path=self.options["image_to_video_path"])
 
-    @property
-    def _i2v_path(self) -> str:
-        return self.options.get("image_to_video_path") or DEFAULT_I2V_PATH
+    def build_body(self, prompt: str, aspect: str, duration_s: float, image_url: str, end_url: str, params: dict) -> tuple[str, dict[str, Any]]:
+        spec = self.spec
+        if image_url:
+            if not spec.i2v_path:
+                raise ProviderError(f"{spec.name} cannot start from an image; remove the start frame or pick another model")
+            path = spec.i2v_path
+        else:
+            if not spec.path:
+                raise ProviderError(f"{spec.name} needs a start frame; add one, or pick a text-to-video model")
+            path = spec.path
+        body: dict[str, Any] = {"prompt": prompt}
+        if image_url:
+            body["image_url"] = image_url
+            # Orientation follows the image; image-to-video endpoints take no aspect_ratio.
+        elif spec.aspects:
+            body["aspect_ratio"] = catalog.nearest_aspect(aspect, spec.aspects)
+        if end_url and spec.end_frame and image_url:
+            body[spec.end_frame] = end_url
+        durations = spec.durations or tuple(self.options.get("durations") or (6, 10))
+        body["duration"] = catalog.nearest_duration(float(duration_s), tuple(durations))
+        resolution = params.get("resolution") or spec.default_resolution
+        if spec.resolutions and resolution in spec.resolutions:
+            body["resolution"] = resolution
+        audio = params.get("audio", True)
+        if spec.audio == "sound":
+            body["sound"] = "on" if audio else "off"
+        elif spec.audio == "generate_audio":
+            body["generate_audio"] = bool(audio)
+        body.update(spec.extra)
+        body.update(self.options.get("extra_body") or {})
+        return path, body
 
     def generate(
         self,
@@ -231,19 +332,13 @@ class HiggsfieldVideo(VideoProvider):
         aspect: str = "9:16",
         duration_s: float = 5.0,
         image: bytes | None = None,
+        params: dict | None = None,
     ) -> MediaResult:
-        body: dict[str, Any] = {"prompt": prompt}
-        path = self.model
-
-        if image:
-            # Video orientation follows the input image; these endpoints carry
-            # no aspect_ratio field of their own.
-            path = self._i2v_path
-            body["image_url"] = self.client.upload(image, ".png")
-
-        allowed = self.options.get("durations") or [6, 10]
-        body["duration"] = min(allowed, key=lambda d: abs(d - duration_s))
-        body.update(self.options.get("extra_body") or {})
+        params = params or {}
+        image_url = self.client.upload(image, ".png") if image else ""
+        end_image = params.get("end_image")
+        end_url = self.client.upload(end_image, ".png") if end_image and image and self.spec.end_frame else ""
+        path, body = self.build_body(prompt, aspect, duration_s, image_url, end_url, params)
 
         request_id = self.client.submit(path, body)
         result = self.client.poll(
@@ -259,7 +354,8 @@ class HiggsfieldVideo(VideoProvider):
             mime="video/mp4",
             model=path,
             duration_s=float(body["duration"]),
-            meta={"request_id": request_id, "source_url": url},
+            meta={"request_id": request_id, "source_url": url, "audio": body.get("sound", body.get("generate_audio")),
+                  "end_frame_used": bool(end_url)},
         )
 
     def check(self) -> str:

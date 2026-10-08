@@ -5,13 +5,10 @@ import asyncio
 from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
 from sqlmodel import Session, select
 
-from .. import auth
-from ..config import (
-    ACCOUNT_COOLDOWN_SECONDS,
-    RUN_STEP_BUDGET,
-    RUN_TIMEOUT_SECONDS,
-    SCHEDULER_TICK_SECONDS,
-)
+from fastapi import Body, HTTPException
+
+from .. import auth, settings_store
+from ..config import SCHEDULER_TICK_SECONDS
 from ..db import get_session
 from ..devices import registry as devices
 from ..devices.targets import catalog, known_targets, save_overrides
@@ -36,6 +33,7 @@ router = APIRouter(prefix="/api", tags=["system"])
 def health(session: Session = Depends(get_session)) -> dict:
     providers = session.exec(select(ProviderConfig).where(ProviderConfig.enabled)).all()
     real = [p for p in providers if p.adapter.value != "simulated"]
+    rules = settings_store.publishing(session)
     return {
         "ok": True,
         "scheduler": scheduler.status(),
@@ -43,12 +41,37 @@ def health(session: Session = Depends(get_session)) -> dict:
         "providers_configured": len(real),
         "providers_total": len(providers),
         "limits": {
-            "run_timeout_seconds": RUN_TIMEOUT_SECONDS,
-            "run_step_budget": RUN_STEP_BUDGET,
-            "account_cooldown_seconds": ACCOUNT_COOLDOWN_SECONDS,
+            "run_timeout_seconds": rules["run_timeout_seconds"],
+            "run_step_budget": rules["step_budget"],
+            "account_cooldown_seconds": rules["cooldown_seconds"],
             "scheduler_tick_seconds": SCHEDULER_TICK_SECONDS,
         },
     }
+
+
+# ---------------- publishing rules ----------------
+
+
+@router.get("/settings/publishing")
+def get_publishing(session: Session = Depends(get_session)) -> dict:
+    return {
+        "rules": settings_store.publishing(session),
+        "defaults": settings_store.PUBLISHING_DEFAULTS,
+        "limits": settings_store.PUBLISHING_LIMITS,
+        "within_posting_hours": settings_store.within_posting_hours(settings_store.publishing(session)),
+    }
+
+
+@router.put("/settings/publishing")
+def put_publishing(body: dict = Body(...), session: Session = Depends(get_session)) -> dict:
+    try:
+        clean = settings_store.validate_publishing(body)
+    except settings_store.SettingsError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    stored = settings_store.get(session, settings_store.PUBLISHING_KEY, {}) or {}
+    settings_store.put(session, settings_store.PUBLISHING_KEY, {**stored, **clean})
+    events.emit("settings.publishing_changed", keys=sorted(clean))
+    return get_publishing(session)
 
 
 @router.get("/overview")

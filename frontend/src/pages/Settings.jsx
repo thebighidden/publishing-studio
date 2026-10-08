@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import { api, useResource } from "../api.js";
 import { Banner, Empty, Field, Modal, Tag, ago, useAction } from "../ui.jsx";
+import PublishingSettings from "./settings/PublishingSettings.jsx";
+import StudioSettings from "./settings/StudioSettings.jsx";
+import VoiceModal from "./settings/VoiceModal.jsx";
+import WorkflowSettings from "./settings/WorkflowSettings.jsx";
 
 const TABS = [
   ["phones", "Phones"],
-  ["accounts", "Accounts"],
+  ["accounts", "Accounts & voice"],
+  ["studio", "Studio"],
+  ["publishing", "Publishing"],
   ["providers", "AI providers"],
+  ["workflows", "ComfyUI workflows"],
   ["security", "Security"],
 ];
 
@@ -33,7 +40,10 @@ export default function Settings({ user }) {
 
       {tab === "phones" && <Phones />}
       {tab === "accounts" && <Accounts />}
+      {tab === "studio" && <StudioSettings />}
+      {tab === "publishing" && <PublishingSettings />}
       {tab === "providers" && <Providers />}
+      {tab === "workflows" && <WorkflowSettings />}
       {tab === "security" && <Security user={user} />}
     </>
   );
@@ -537,6 +547,7 @@ function Accounts() {
 function AccountRow({ account, phones, onChanged }) {
   const { busy, error, run } = useAction();
   const [detail, setDetail] = useState(null);
+  const [editingVoice, setEditingVoice] = useState(false);
 
   const check = () =>
     run(async () => {
@@ -581,11 +592,15 @@ function AccountRow({ account, phones, onChanged }) {
           <button onClick={check} disabled={busy || !account.phone_id}>
             {busy ? "Looking…" : "Check login"}
           </button>
+          <button onClick={() => setEditingVoice(true)}>Brand voice</button>
           <button className="danger ghost" onClick={drop} disabled={busy}>Remove</button>
         </div>
       </div>
       <Banner error={error} />
       {detail && <div className="small muted">{detail}</div>}
+      {editingVoice && (
+        <VoiceModal account={account} onClose={() => setEditingVoice(false)} onSaved={() => { setEditingVoice(false); onChanged(); }} />
+      )}
     </div>
   );
 }

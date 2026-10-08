@@ -83,6 +83,7 @@ class ImageProvider(ABC):
         seed: int | None = None,
         image: bytes | None = None,
         image_mime: str = "image/png",
+        params: dict | None = None,
     ) -> MediaResult: ...
 
     @abstractmethod
@@ -100,6 +101,7 @@ class VideoProvider(ABC):
         aspect: str = "9:16",
         duration_s: float = 5.0,
         image: bytes | None = None,
+        params: dict | None = None,  # resolution, audio, end_image: honoured where the model supports them
     ) -> MediaResult: ...
 
     @abstractmethod

@@ -18,6 +18,7 @@ from .base import (
     TextResult,
     VideoProvider,
 )
+from . import higgsfield_catalog
 from .higgsfield import HiggsfieldImage, HiggsfieldVideo
 from .google_genai import GoogleGenAIImage, GoogleVeoVideo
 from .openai_compat import OpenAICompatImage, OpenAICompatText
@@ -39,10 +40,23 @@ __all__ = [
 ]
 
 
-def build(cfg: ProviderConfig):
+# A studio model id is a provider row id, or "<row id>~<catalog key>" for one of
+# the models a single Higgsfield key unlocks.
+MODEL_SEP = "~"
+
+
+def build(cfg: ProviderConfig, model_key: Optional[str] = None):
     """Turn a stored row into a live client. Raises if it cannot be built."""
     key = decrypt(cfg.api_key) or ""
     opts = cfg.options or {}
+
+    if model_key:
+        spec = higgsfield_catalog.find(model_key)
+        if cfg.adapter != ProviderAdapter.higgsfield or spec is None:
+            raise NotConfigured(f"unknown model {model_key!r}")
+        if spec.kind == "image":
+            return HiggsfieldImage(key, cfg.base_url or "", spec.path, opts, spec)
+        return HiggsfieldVideo(key, cfg.base_url or "", spec.path or spec.i2v_path, opts, spec)
 
     if cfg.adapter == ProviderAdapter.simulated:
         return {
@@ -127,6 +141,51 @@ def get_video(session: Session) -> tuple[VideoProvider, Optional[ProviderConfig]
     return _resolve(session, ProviderKind.video, SimulatedVideo)
 
 
+def get_chosen(session: Session, kind: ProviderKind, provider_id: Optional[str]):
+    """The provider the operator picked in the studio, or the default when none was.
+
+    Unlike the default path this never falls back silently: a model that was
+    chosen by name and cannot be built is an error the operator should see."""
+    if not provider_id:
+        return get_image(session) if kind == ProviderKind.image else get_video(session)
+    cfg_id, _, model_key = provider_id.partition(MODEL_SEP)
+    cfg = session.get(ProviderConfig, cfg_id)
+    gone = NotConfigured(f"that {kind.value} model is not available any more; pick another")
+    if cfg is None or not cfg.enabled:
+        raise gone
+    if model_key:
+        spec = higgsfield_catalog.find(model_key)
+        if cfg.adapter != ProviderAdapter.higgsfield or spec is None or spec.kind != kind.value:
+            raise gone
+        return build(cfg, model_key), cfg
+    if cfg.kind != kind:
+        raise gone
+    return build(cfg), cfg
+
+
+def model_name(provider_id: str, cfg: Optional[ProviderConfig], kind: ProviderKind) -> str:
+    """The label an asset records for the model that made it."""
+    _, _, model_key = (provider_id or "").partition(MODEL_SEP)
+    spec = higgsfield_catalog.find(model_key) if model_key else None
+    if spec is not None:
+        return f"higgsfield/{spec.name}"
+    return describe(cfg, kind)
+
+
+_PRIVATE_HOSTS = ("localhost", "127.", "10.", "192.168.", "172.16.", "172.17.", "172.18.", "172.19.",
+                  "172.2", "172.30.", "172.31.", "host.docker.internal")
+
+
+def reach(cfg: Optional[ProviderConfig]) -> str:
+    """How a model is reached, for the studio's model picker (feature f105)."""
+    if cfg is None or cfg.adapter == ProviderAdapter.simulated:
+        return "offline"
+    host = (cfg.base_url or "").split("://")[-1]
+    if cfg.adapter == ProviderAdapter.comfyui or (host and host.startswith(_PRIVATE_HOSTS)):
+        return "local"
+    return "cloud"
+
+
 def describe(cfg: Optional[ProviderConfig], kind: ProviderKind) -> str:
     if cfg is None:
         return f"simulated/{kind.value}"
@@ -174,21 +233,14 @@ CATALOG = [
         "key_hint": "KEY_ID:KEY_SECRET (both halves, colon separated)",
         "base_url": "https://api.higgsfield.ai",
         "models": {
-            "image": [
-                "/higgsfield-ai/soul/standard",
-                "/higgsfield-ai/soul/v2/standard",
-            ],
-            "video": [
-                "/minimax/hailuo-2.3/standard/text-to-video",
-                "/minimax/hailuo-2.3/standard/image-to-video",
-                "/kling-video/v2.5-turbo/pro/image-to-video",
-                "/wan/v2.7/image-to-video",
-            ],
+            "image": [s.path for s in higgsfield_catalog.CATALOG if s.kind == "image"],
+            "video": [s.path for s in higgsfield_catalog.CATALOG if s.kind == "video"],
         },
         "note": (
-            "The model field is the endpoint path, so a new Higgsfield model is a "
-            "new path and needs no code change. Generation is asynchronous and the "
-            "concurrency limit returns HTTP 400, not 429."
+            "One key unlocks every model in the studio's Higgsfield catalog (Soul, Grok Image, "
+            "Kling, Seedance, Hailuo); the model chosen here is just the default. To use a model "
+            "the catalog does not list, enter its endpoint path. The concurrency limit returns "
+            "HTTP 400, not 429."
         ),
     },
     {

@@ -149,6 +149,7 @@ class OpenAICompatImage(ImageProvider):
         seed: int | None = None,
         image: bytes | None = None,
         image_mime: str = "image/png",
+        params: dict | None = None,
     ) -> MediaResult:
         w, h = aspect_size(aspect)
         body: dict[str, Any] = {

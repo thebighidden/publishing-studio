@@ -36,7 +36,7 @@ Requires Python 3.12+, Node 18+, and `adb` on PATH for real devices.
 cd backend
 python -m venv .venv && .venv/Scripts/activate      # Windows
 pip install -r requirements.txt
-python -m uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --reload --port 8000 --timeout-graceful-shutdown 3
 
 # frontend → http://127.0.0.1:5173
 cd frontend
@@ -52,15 +52,55 @@ try the publishing flow: the studio falls back to a built-in simulator and offli
 and labels every asset `simulated`. `backend/scripts/demo.py` drives a full campaign end to end;
 set `STUDIO_USERNAME` and `STUDIO_PASSWORD` in that process so it can authenticate.
 
-### Creative Lab: Gemini images and Veo video
+### Creative studio
 
-**Creative Lab** is a standalone image/video test surface inspired by Aluna's production flow.
-Upload a product reference, describe the new scene, and the studio adds a strict identity direction:
-change the world around the product without changing its shape, materials, colors, packaging, logos,
-labels, or visible text. For video, the studio can first art-direct a clean opening frame with the
-selected image model and then animate that frame with the selected video model.
+**Creative studio** (`/creative`) is where content is made and sent out:
 
-The lab works immediately with the offline image renderer and real local MP4 encoder. To use the
+- **Generate** images or video with any enabled model, each labelled local, cloud or offline. The
+  controls follow the model: its formats, lengths, quality tiers, sound, reference images and
+  start/end frames. Style presets, 1–4 variations, a fixed or random seed, and advanced controls
+  (steps, guidance, shift, sampler, scheduler) when the model exposes them.
+- **Jobs run on the server** (`/api/creative/jobs`): queue as many as you like, close the tab, come
+  back to finished work. Cloud models run up to three at once, a local GPU one at a time. Busy or
+  rate-limited providers are retried; a queued Higgsfield job can be stopped before it starts. A job
+  cut off by a restart is marked failed, never silently re-run, because it may already have been charged.
+- **✦ Improve** turns a short idea into a detailed prompt with the text model (undoable).
+- **Work with results**: favourite, tag, move between **projects**, download, delete (refused while a
+  post uses the file), **Remix** (load its prompt, model and seed), **More like this** (four new seeds),
+  **Animate** (a video from that exact frame). Every asset keeps the settings that made it.
+- **Library**: everything ever made, by project, favourites or search over prompts and captions.
+- **Publish**: an Instagram-style preview, **✦ Write with AI** for the caption in the account's
+  brand voice, live spec checks, then **post now** or **schedule** onto the calendar, through a phone.
+  Approving there is the content approval (gate 6B) for that one post; drafts are kept on the asset.
+
+Settings that shape it: **Studio** (defaults, style presets), **Accounts & voice** (tone, topics,
+words to avoid, sign-off, default hashtags), **Publishing** (cooldown, retries, run limits, posting
+hours, phone readiness) and **ComfyUI workflows** (bring your own exported workflow, see below).
+
+### Higgsfield: one key, many models
+
+Add **Higgsfield** under **Settings → AI providers** with a `KEY_ID:KEY_SECRET` key from
+console.higgsfield.ai. That one key unlocks the studio's catalog
+(`backend/app/providers/higgsfield_catalog.py`):
+
+| Kind | Models |
+| --- | --- |
+| Image | Soul 2, Soul (takes a reference), Soul Cinema, Grok Image 2 (edits up to 10 references) |
+| Video | Kling 3.0 Pro and Seedance 2.0 (sound, start and end frames, up to 15 s), Hailuo 2.3 (fast 768p) |
+
+Each entry records the request fields its endpoint accepts, taken from docs.higgsfield.ai. A model
+the catalog does not list still works: enter its endpoint path as the provider's model.
+
+### ComfyUI models and workflows
+
+Add your ComfyUI server under **Settings → AI providers** (adapter *ComfyUI server*, model
+`z_image_turbo`), started with `--listen`. To use another workflow, export it from ComfyUI with
+**Save (API Format)**, add it under **Settings → ComfyUI workflows**, confirm which inputs hold the
+prompt, seed and size (the studio suggests them), and press **Use in studio**.
+
+### Gemini images and Veo video
+
+The studio works immediately with the offline image renderer and real local MP4 encoder. To use the
 Google path, open **Settings → AI providers → Add provider**:
 
 1. Add **Google Gemini + Veo (Aluna workflow)** as the default image provider. A Gemini API key is
