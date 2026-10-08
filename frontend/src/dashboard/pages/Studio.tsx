@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { ArrowUpRight, FolderKanban, ImagePlus, PenLine, Plus, Send, Sparkles, Wand2 } from 'lucide-react'
+import { ArrowUpRight, FolderKanban, ImagePlus, PenLine, Plus, Send, Sparkles, Wand2, X } from 'lucide-react'
 import { Serif } from '../../components/ui/Reveal'
 import { api, type Asset, type Generation, type ModelInfo, type Project, type Registry } from '../../lib/api'
 import { ease } from '../../lib/motion'
@@ -83,6 +83,24 @@ function StudioHome() {
 /* ------------------------------------------------------------------ */
 
 const FALLBACK_RATIOS = ['1:1', '4:5', '9:16', '16:9']
+const SOCIAL_FORMATS = [
+  { value: 'reel', label: 'Instagram Reel', ratio: '9:16', duration: 8 },
+  { value: 'tiktok', label: 'TikTok', ratio: '9:16', duration: 8 },
+  { value: 'short', label: 'YouTube Short', ratio: '9:16', duration: 8 },
+  { value: 'feed', label: 'Feed post', ratio: '4:5', duration: 5 },
+]
+const CREATIVE_STARTS = {
+  image: [
+    ['Product launch', 'Premium product campaign image, editorial lighting, clear hero composition'],
+    ['UGC look', 'Authentic creator-style phone photo, natural light, relatable setting'],
+    ['Ad creative', 'High-converting paid social creative with generous clean space for copy'],
+  ],
+  video: [
+    ['Hook first', 'Start with a scroll-stopping visual hook in the first second, then reveal the product'],
+    ['Product demo', 'Show a clear satisfying product demonstration with close-up details'],
+    ['Lifestyle story', 'Warm aspirational lifestyle moment with a natural camera move'],
+  ],
+} as const
 
 function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'video'; models: ModelInfo[]; defaultText: string }) {
   const toast = useToast()
@@ -95,6 +113,10 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
   const [resolution, setResolution] = useState<string | null>(null)
   const [audio, setAudio] = useState(true)
   const [seed, setSeed] = useState('')
+  const [avoid, setAvoid] = useState('')
+  const [brief, setBrief] = useState('')
+  const [format, setFormat] = useState(kind === 'video' ? 'reel' : 'feed')
+  const [variations, setVariations] = useState(1)
   const [references, setReferences] = useState<Asset[]>([])
   const [picking, setPicking] = useState(false)
   const [streaming, setStreaming] = useState<string | null>(null)
@@ -109,6 +131,16 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
   const resolutions = caps.resolutions ?? []
   const maxInputs = caps.max_inputs ?? (kind === 'video' ? 1 : 0)
   const needsImage = !!caps.requires_image
+  const maxOutputs = Math.min(caps.max_outputs ?? 1, 4)
+
+  const chooseFormat = (value: string) => {
+    setFormat(value)
+    const picked = SOCIAL_FORMATS.find((item) => item.value === value)
+    if (picked) {
+      setRatio(picked.ratio)
+      setDuration(picked.duration)
+    }
+  }
 
   const go = async () => {
     if (!prompt.trim()) return setError('Describe what you want.')
@@ -120,16 +152,19 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
         setStreaming('')
         await runText({ prompt, model }, setStreaming)
       } else {
+        const creativePrompt = [brief, prompt.trim(), avoid.trim() ? `Avoid: ${avoid.trim()}.` : ''].filter(Boolean).join('. ')
         await runMedia({
           kind,
           model,
-          prompt,
+          prompt: creativePrompt,
           params: {
             ...(caps.aspect_ratios?.length ? { aspect_ratio: ratio } : {}),
             ...(kind === 'video' ? { duration } : {}),
             ...(resolution ? { resolution } : {}),
             ...(caps.audio && !caps.audio_always_on ? { audio } : {}),
             ...(seed ? { seed: Number(seed) } : {}),
+            ...(kind === 'image' && variations > 1 ? { batch_size: variations } : {}),
+            ...(avoid.trim() ? { negative_prompt: avoid.trim() } : {}),
           },
           input_asset_ids: references.length ? references.map((asset) => asset.id) : undefined,
         })
@@ -163,6 +198,21 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
             {current && !current.available && <p className="mt-1.5 text-[11.5px] text-warn">{current.reason}</p>}
           </div>
 
+          {kind !== 'text' && (
+            <div className="rounded-lg border border-line bg-white/[0.015] p-3">
+              <Label>Social brief</Label>
+              <Segmented id="social-format" label="Social format" options={SOCIAL_FORMATS.map(({ value, label }) => ({ value, label: label.replace('Instagram ', '').replace('YouTube ', '') }))} value={format} onChange={chooseFormat} className="mt-2 w-full" />
+              <div className="mt-2 grid grid-cols-3 gap-1.5">
+                {CREATIVE_STARTS[kind].map(([label, direction]) => (
+                  <button key={label} type="button" onClick={() => setBrief(direction)} className={cn('rounded-md border px-2 py-2 text-left text-[10.5px] transition-colors', brief === direction ? 'border-accent/50 bg-accent/[0.08] text-fg' : 'border-line text-dim hover:border-line-2 hover:text-muted')}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+              {brief && <button type="button" onClick={() => setBrief('')} className="mt-2 text-[11px] text-dim hover:text-fg">Clear creative direction</button>}
+            </div>
+          )}
+
           {maxInputs > 0 && (
             <div>
               <Label>{kind === 'video' ? (needsImage ? 'Starts from' : 'Start frame or reference') : 'Reference images'}</Label>
@@ -176,6 +226,17 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
               </button>
               <MediaPicker open={picking} onClose={() => setPicking(false)} onPick={(assets) => setReferences(assets.filter((asset) => asset.kind === 'image').slice(0, maxInputs))} max={maxInputs} initial={references} />
               {caps.end_frame && <p className="mt-1.5 text-[11px] text-dim">Choose two images to set a start and end frame.</p>}
+              {references.length > 0 && (
+                <div className="mt-2 flex gap-2 overflow-x-auto pb-1">
+                  {references.map((asset, index) => (
+                    <span key={asset.id} className="group relative shrink-0">
+                      <MediaThumb asset={asset} className="size-14" />
+                      <span className="absolute bottom-0 left-0 rounded-tr bg-black/70 px-1 py-0.5 font-mono text-[8px] text-white">{caps.end_frame && index === 1 ? 'END' : index === 0 && kind === 'video' ? 'START' : `REF ${index + 1}`}</span>
+                      <button type="button" aria-label="Remove reference" onClick={() => setReferences((items) => items.filter((item) => item.id !== asset.id))} className="absolute -right-1 -top-1 grid size-4 place-items-center rounded-full border border-line bg-panel text-dim opacity-0 transition-opacity group-hover:opacity-100 hover:text-fg"><X className="size-2.5" /></button>
+                    </span>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -229,6 +290,18 @@ function Generator({ kind, models, defaultText }: { kind: 'text' | 'image' | 'vi
               <Label>Seed <span className="normal-case text-dim">optional</span></Label>
               <input value={seed} onChange={(event) => setSeed(event.target.value.replace(/\D/g, '').slice(0, 7))} placeholder="Random" inputMode="numeric" className={cn(inputClass, 'mt-2')} />
             </label>
+          )}
+          {kind !== 'text' && (
+            <label className="block">
+              <Label>What to avoid <span className="normal-case text-dim">optional</span></Label>
+              <input value={avoid} onChange={(event) => setAvoid(event.target.value)} placeholder="Blurry text, distorted logo, cluttered background…" className={cn(inputClass, 'mt-2')} />
+            </label>
+          )}
+          {kind === 'image' && maxOutputs > 1 && (
+            <div>
+              <Label>Variations</Label>
+              <Segmented id="variations" label="Variations" options={Array.from({ length: maxOutputs }, (_, index) => ({ value: index + 1, label: `${index + 1}` }))} value={variations} onChange={setVariations} className="mt-2 w-fit" />
+            </div>
           )}
 
           <FieldError message={error} />
