@@ -2,7 +2,9 @@ import {
   CalendarDays,
   Cpu,
   ChartColumn,
+  FlaskConical,
   FolderOpen,
+  Images,
   Inbox,
   LayoutGrid,
   Megaphone,
@@ -45,6 +47,8 @@ export const NAV_GROUPS: NavGroup[] = [
     label: 'Create',
     items: [
       { path: '/dashboard/studio', label: 'Creative Lab', icon: Wand2 },
+      { path: '/dashboard/lab', label: 'Reels Lab', icon: FlaskConical },
+      { path: '/dashboard/gallery', label: 'Made with AI', icon: Images },
       { path: '/dashboard/campaigns', label: 'Campaigns', icon: Megaphone },
       { path: '/dashboard/create', label: 'Composer', icon: PenLine },
       { path: '/dashboard/reposts', label: 'Reposts', icon: Repeat2 },

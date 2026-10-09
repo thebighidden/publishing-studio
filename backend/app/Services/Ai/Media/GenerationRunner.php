@@ -161,6 +161,7 @@ class GenerationRunner
             'higgsfield' => app(HiggsfieldProvider::class),
             'gateway' => app(GatewayImageProvider::class),
             'google' => app(GoogleGenAiProvider::class),
+            'comfyui' => app(ComfyUiProvider::class),
             'voicestudio' => app(VoiceStudioProvider::class),
             'invoke' => app(InvokeProvider::class),
             default => throw new GenerationFailed('That provider doesn’t make images, video or speech.'),
@@ -171,12 +172,14 @@ class GenerationRunner
     {
         $words = str($generation->prompt)->lower()->replaceMatches('/[^\pL\pN]+/u', '-')->trim('-')->limit(40, '');
 
-        $extension = match (true) {
+        $ext = match (true) {
+            $mime === 'image/jpeg' => 'jpg',
+            $mime === 'image/webp' => 'webp',
             str_starts_with($mime, 'video/') => 'mp4',
             str_starts_with($mime, 'audio/') => str_contains($mime, 'wav') ? 'wav' : 'mp3',
             default => 'png',
         };
 
-        return "{$words}".($i ? '-'.($i + 1) : '').'.'.$extension;
+        return "{$words}".($i ? '-'.($i + 1) : '').".{$ext}";
     }
 }

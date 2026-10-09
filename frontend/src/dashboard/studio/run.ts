@@ -2,7 +2,6 @@ import { api, apiStream, ApiError, type Generation } from '../../lib/api'
 
 export function messageFor(e: unknown) {
   if (!(e instanceof ApiError)) return 'Something went wrong. Try again.'
-  if (e.status === 403) return 'Confirm your email address to use AI generation.'
   if (e.status === 429) return 'That’s a lot in a short time. Give it a minute.'
   if (e.status === 422) return Object.values(e.errors)[0]?.[0] ?? e.message
   return e.message

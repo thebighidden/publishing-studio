@@ -6,6 +6,7 @@ use Anthropic\Client;
 use App\Models\ConnectorTest;
 use App\Models\ModelEval;
 use App\Services\Ai\GenerationFailed;
+use App\Services\Ai\Media\ComfyUiClient;
 use App\Services\Ai\Media\HiggsfieldClient;
 use App\Services\Ai\Media\InvokeClient;
 use App\Services\Ai\Media\InvokeGraphs;
@@ -22,11 +23,12 @@ use Throwable;
  * reached, whether it can run right now and if not why, and its eval score.
  *
  * Ids are "provider/model": anthropic/claude-opus-5-5, gateway/llama-3.3-70b, ollama/qwen2.5:7b,
- * higgsfield/ideogram-4.
+ * higgsfield/soul-2, comfyui/z-image-turbo. Image and video models also carry `caps`: what the
+ * studio's controls may offer for them (formats, lengths, quality, sound, input images).
  */
 class ModelRegistry
 {
-    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield', 'google', 'invoke', 'voicestudio'];
+    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield', 'google', 'comfyui', 'invoke', 'voicestudio'];
 
     /** What InvokeAI image models offer in the studio: shapes, render settings, variations and edits. */
     private const INVOKE_CAPABILITIES = [
@@ -41,7 +43,7 @@ class ModelRegistry
      */
     public function all(?string $kind = null): array
     {
-        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield(), ...$this->google(), ...$this->invoke(), ...$this->voicestudio()];
+        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield(), ...$this->google(), ...$this->comfyui(), ...$this->invoke(), ...$this->voicestudio()];
         $scores = ModelEval::query()
             ->selectRaw('model, avg(score) as score')
             ->whereIn('id', ModelEval::query()->selectRaw('max(id)')->groupBy('model', 'task'))
@@ -128,6 +130,7 @@ class ModelRegistry
                 'google' => $this->testGoogle(),
                 'voicestudio' => $this->testVoiceStudio(),
                 'invoke' => app(InvokeClient::class)->test(),
+                'comfyui' => app(ComfyUiClient::class)->test(),
             };
             $ok = true;
         } catch (Throwable $e) {
@@ -162,8 +165,9 @@ class ModelRegistry
                     'anthropic' => 'Set ANTHROPIC_API_KEY.',
                     'gateway' => 'Set AI_GATEWAY_URL (an OpenAI-compatible /v1 base) and AI_GATEWAY_KEY.',
                     'ollama' => 'Set OLLAMA_URL to an Ollama server, e.g. http://ollama:11434.',
-                    'higgsfield' => 'Set HIGGSFIELD_KEY_ID and HIGGSFIELD_KEY_SECRET, and HIGGSFIELD_PLAN to the models your plan includes.',
+                    'higgsfield' => 'Set HIGGSFIELD_KEY_ID and HIGGSFIELD_KEY_SECRET. HIGGSFIELD_PLAN can narrow the models to the ones your plan includes.',
                     'google' => 'Set GEMINI_API_KEY for Gemini image generation and Veo video generation.',
+                    'comfyui' => 'Set COMFYUI_URL to a ComfyUI server started with --listen (from Docker, a server on this computer is http://host.docker.internal:8188).',
                     'invoke' => 'Set INVOKE_URL to an InvokeAI server, e.g. http://gpu-box:9090.',
                     'voicestudio' => 'Set OMNIVOICE_URL to a VoiceStudio server, e.g. http://gpu-box:3900, and OMNIVOICE_API_KEY.',
                 ][$p],
@@ -182,13 +186,70 @@ class ModelRegistry
             'google' => filled(config('ai.providers.google.key')),
             'voicestudio' => filled(config('ai.providers.voicestudio.url')) && filled(config('ai.providers.voicestudio.key')),
             'invoke' => filled(config('ai.providers.invoke.url')),
+            'comfyui' => filled(config('ai.providers.comfyui.url')),
             default => false,
         };
     }
 
+    /**
+     * What the studio's controls may offer for an image or video model. Null lists mean
+     * "the studio's usual choices"; the provider snaps anything else to what the model accepts.
+     *
+     * @param  array<string, mixed>  $spec
+     * @return array<string, mixed>
+     */
+    public static function caps(array $spec, string $kind): array
+    {
+        $imageInput = filled($spec['image_field'] ?? null) || filled($spec['image_route'] ?? null);
+
+        return [
+            'aspects' => $spec['aspects'] ?? null,
+            'durations' => $kind === 'video' ? ($spec['durations'] ?? null) : null,
+            'resolutions' => $spec['resolutions'] ?? null,
+            'default_resolution' => $spec['defaults']['resolution'] ?? null,
+            'image_input' => $imageInput,
+            'requires_image' => (bool) ($spec['requires_image'] ?? false) || ($kind === 'video' && ! ($spec['route'] ?? null) && $imageInput),
+            'max_images' => $imageInput ? (int) ($spec['max_images'] ?? 1) : 0,
+            'end_frame' => filled($spec['end_field'] ?? null),
+            'audio' => filled($spec['audio'] ?? null),
+            'seed' => isset($spec['seed_range']) || in_array('seed', $spec['params'] ?? [], true),
+        ];
+    }
+
+    /**
+     * The same abilities in the workbench's names. Null lists stay out, so the workbench falls
+     * back to its usual choices exactly as the Lab page does.
+     *
+     * @param  array<string, mixed>  $caps
+     * @return array<string, mixed>
+     */
+    public static function capabilities(array $caps): array
+    {
+        return array_filter([
+            'aspect_ratios' => $caps['aspects'] ?? null,
+            'durations' => $caps['durations'] ?? null,
+            'resolutions' => $caps['resolutions'] ?? null,
+            'default_resolution' => $caps['default_resolution'] ?? null,
+            'max_inputs' => (int) ($caps['max_images'] ?? 0),
+            'input_optional' => ($caps['image_input'] ?? false) && ! ($caps['requires_image'] ?? false),
+            'requires_image' => (bool) ($caps['requires_image'] ?? false),
+            'end_frame' => (bool) ($caps['end_frame'] ?? false),
+            'audio' => (bool) ($caps['audio'] ?? false),
+            'seed' => (bool) ($caps['seed'] ?? false),
+        ], fn ($v) => $v !== null && $v !== false);
+    }
+
     /* ------------------------------------------------------------------ */
 
-    private function entry(string $provider, string $model, string $label, string $kind, ?string $purpose, bool $available, ?string $reason, ?bool $local = null, array $capabilities = []): array
+    /**
+     * Each model carries its abilities twice: `caps` (the Higgsfield-spec shape the Lab page reads)
+     * and `capabilities` (the shape the Creative Lab workbench reads). Pass whichever the provider
+     * has; the other is worked out from it.
+     *
+     * @param  array<string, mixed>|null  $caps
+     * @param  array<string, mixed>  $capabilities
+     */
+    private function entry(string $provider, string $model, string $label, string $kind, ?string $purpose, bool $available, ?string $reason, ?bool $local = null, ?array $caps = null, ?string $family = null, array $capabilities = []): array
     {
         return [
             'id' => "{$provider}/{$model}",
@@ -196,12 +257,14 @@ class ModelRegistry
             'model' => $model,
             'label' => $label,
             'kind' => $kind,
+            'family' => $family,
             'reach' => config("ai.providers.{$provider}.reach"),
             'local' => $local ?? (bool) config("ai.providers.{$provider}.local", false),
             'available' => $available,
             'reason' => $available ? null : $reason,
             'purpose' => $purpose,
-            'capabilities' => (object) $capabilities,
+            'caps' => $kind === 'text' ? null : ($caps ?? self::caps([], $kind)),
+            'capabilities' => (object) ($capabilities ?: ($caps ? self::capabilities($caps) : [])),
         ];
     }
 
@@ -235,7 +298,7 @@ class ModelRegistry
         return [
             ...collect($text)->reject(fn ($id) => in_array($id, $images, true))
                 ->map(fn ($id) => $this->entry('gateway', $id, $id, 'text', in_array($id, $local, true) ? 'Local: effectively free, for prototyping' : 'Gateway model', true, null, in_array($id, $local, true)))->all(),
-            ...collect($images)->map(fn ($id) => $this->entry('gateway', $id, $id, 'image', 'Images through the gateway', true, null))->all(),
+            ...collect($images)->map(fn ($id) => $this->entry('gateway', $id, $id, 'image', 'Images through the gateway', true, null, null, self::caps(['aspects' => ['1:1', '4:5', '9:16', '16:9']], 'image')))->all(),
         ];
     }
 
@@ -265,15 +328,33 @@ class ModelRegistry
 
         return collect(config('ai.providers.higgsfield.models'))->map(function (array $m, string $id) use ($configured, $plan, $test) {
             $reason = match (true) {
-                ! $m['route'] => 'No API route for this model yet.',
-                ! in_array($id, $plan, true) => 'Not in your Higgsfield plan.',
+                ! ($m['route'] ?? null) && ! ($m['image_route'] ?? null) => 'No API route for this model yet.',
+                $plan !== [] && ! in_array($id, $plan, true) => 'Not in your Higgsfield plan.',
                 ! $configured => 'No Higgsfield API key is set.',
                 ! $test => 'The Higgsfield connector hasn’t been tested.',
                 ! $test->ok => 'The Higgsfield connector test failed: '.$test->message,
                 default => null,
             };
 
-            return $this->entry('higgsfield', $id, $m['label'], $m['kind'], $m['purpose'] ?? null, $reason === null, $reason, capabilities: $m['capabilities'] ?? []);
+            return $this->entry('higgsfield', $id, $m['label'], $m['kind'], $m['purpose'] ?? null, $reason === null, $reason, null, self::caps($m, $m['kind']), $m['family'] ?? null);
+        })->values()->all();
+    }
+
+    private function comfyui(): array
+    {
+        $configured = $this->configured('comfyui');
+        $test = ConnectorTest::latestFor('comfyui');
+
+        return collect(config('ai.providers.comfyui.workflows', []))->map(function (array $w, string $id) use ($configured, $test) {
+            $reason = match (true) {
+                ! $configured => 'No ComfyUI server is set (COMFYUI_URL).',
+                ! $test => 'The ComfyUI connector hasn’t been tested.',
+                ! $test->ok => 'The ComfyUI connector test failed: '.$test->message,
+                default => null,
+            };
+            $caps = self::caps(['aspects' => ['1:1', '4:5', '9:16', '16:9'], 'seed_range' => [0, 4294967295]], $w['kind']);
+
+            return $this->entry('comfyui', $id, $w['label'], $w['kind'], $w['purpose'] ?? null, $reason === null, $reason, true, $caps, 'Your GPU · ComfyUI');
         })->values()->all();
     }
 

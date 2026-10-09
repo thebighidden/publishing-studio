@@ -18,9 +18,11 @@ return [
     'max_attempts' => 3,
     'backoff_minutes' => [5, 15, 30],
 
-    // R7: every run has a hard timeout and a step budget.
-    'step_budget' => 40,
-    'hard_timeout_seconds' => 240,
+    // R7: every run has a hard timeout and a step budget. Sized for real phones: an Instagram
+    // run with a cold start, permission dialogs, caption read-back and the profile check before
+    // and after takes 35–50 device actions, and a video upload can take minutes.
+    'step_budget' => (int) env('PUBLISHING_STEP_BUDGET', 60),
+    'hard_timeout_seconds' => (int) env('PUBLISHING_HARD_TIMEOUT', 420),
 
     // An agent-driven run that reports nothing for this long is swept: the phone
     // is released and the run ends honestly (uncertain if it reached "publish").

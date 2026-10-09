@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Auth;
 class RegisteredUserController extends Controller
 {
     /**
-     * Create the account, send the confirmation email, and sign the new user in.
+     * Create the account and sign the new user in. There's no email confirmation step: the
+     * account counts as confirmed from the start, so no confirmation email goes out.
      */
     public function __invoke(RegisterRequest $request): JsonResponse
     {
@@ -27,6 +28,7 @@ class RegisteredUserController extends Controller
                 'formats' => $request->input('formats', []),
             ],
         ]);
+        $user->markEmailAsVerified();
 
         event(new Registered($user));
 

@@ -59,6 +59,29 @@ shape of each:
 - **Investigator** verifies the studio's own records against their evidence; its AI validation
   falls back to showing a person everything when AI is off — erring loud, not quiet.
 
+## Real phones: the agent keeps the same rules
+
+The automation service now exists (`agent/`): it registers the phones on its computer
+(`/api/agent/hello`), and for each job drives Instagram or X through named targets, inside the
+job's own budget and timeout. Confirmed still means observed: the profile's post count grew *and*
+the newest post carries the caption, with the screenshots uploaded as proof. If the run stops
+after Publish was tapped, the agent can't know whether the post went out, so it says uncertain
+rather than failed; a failed post is retried, and retrying one that's actually live is how an
+account double-posts. Remote control from the live view is refused while a run holds the phone.
+
+Real hardware moved one guardrail. A real Instagram run (cold start, permission dialogs, caption
+read-back, the profile checked before and after) takes 35–50 device actions, and a video can take
+minutes to upload, so the step budget went from 40 to 60 and the hard timeout from 240 to 420
+seconds (`PUBLISHING_STEP_BUDGET`, `PUBLISHING_HARD_TIMEOUT`). Both are still enforced on both sides.
+
+## Models are described, not guessed
+
+Each Higgsfield model in `config/ai.php` carries its request schema from Higgsfield's docs: which
+route, aspects, lengths, resolutions, image fields and sound switch it takes. The Studio only
+offers those, and the provider snaps anything else to the nearest accepted value, so a request
+never fails on a field the model doesn't know. The previous stand-ins sent fields Soul doesn't
+accept and marked every result PNG; results are now typed from their bytes.
+
 ## Costs
 
 A simulator run spends nothing, so run spend shows 0; AI spend from writing and media

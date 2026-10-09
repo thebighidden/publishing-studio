@@ -13,7 +13,7 @@ import { Btn, Label, PageHeader, Panel, Segmented, Skeleton, Stagger } from '../
 
 type Evals = { tasks: Record<string, string>; results: Record<string, Record<string, { score: number; detail: string | null; output: string | null; at: string }>> }
 
-const PROVIDER_NAME: Record<string, string> = { anthropic: 'Anthropic', gateway: 'Model gateway', ollama: 'Ollama', higgsfield: 'Higgsfield' }
+const PROVIDER_NAME: Record<string, string> = { anthropic: 'Anthropic', gateway: 'Model gateway', ollama: 'Ollama', higgsfield: 'Higgsfield', comfyui: 'ComfyUI' }
 
 /** /dashboard/models: the registry of local and cloud models, connectors, evals and recipes. */
 export default function Models() {

@@ -172,6 +172,61 @@ class AgentApiTest extends TestCase
         $this->agent()->postJson("/api/agent/runs/{$run->uuid}/steps", ['steps' => [$step]])->assertUnprocessable();
     }
 
+    public function test_the_agent_registers_the_phones_it_can_drive(): void
+    {
+        $this->agent()->postJson('/api/agent/hello', [
+            'phones' => [
+                ['ref' => 'phone-1', 'name' => 'Pixel 8', 'model' => 'Pixel 8', 'android' => '15', 'width' => 1080, 'height' => 2400, 'kind' => 'adb'],
+                ['ref' => 'R58N123ABC', 'name' => 'SM-S921B', 'model' => 'SM-S921B', 'android' => '14', 'width' => 1080, 'height' => 2340, 'kind' => 'adb'],
+            ],
+            'mirror_url' => 'http://localhost:8765',
+        ])->assertOk()->assertJsonCount(2, 'phones')->assertJsonPath('phones.1.name', 'SM-S921B');
+
+        // The known phone keeps its name; the new one appears as an HTTP phone, online, with its live view.
+        $this->assertSame('phone-1', $this->phone->refresh()->ref);
+        $this->assertNotSame('Pixel 8', $this->phone->name);
+        $new = $this->user->devices()->where('ref', 'R58N123ABC')->first();
+        $this->assertSame(['http', 'SM-S921B'], [$new->driver, $new->name]);
+
+        $listed = collect($this->actingAs($this->user)->spa()->getJson('/api/devices')->assertOk()->json('data') ?? $this->spa()->getJson('/api/devices')->json())->keyBy('ref');
+        $this->assertTrue($listed['R58N123ABC']['online']);
+        $this->assertSame(['14', [1080, 2340], 'http://localhost:8765'], [$listed['R58N123ABC']['android'], $listed['R58N123ABC']['screen'], $listed['R58N123ABC']['mirror_url']]);
+
+        // Silent for long enough, it's offline.
+        $this->travel(5)->minutes();
+        $this->assertFalse(collect($this->spa()->getJson('/api/devices')->json('data') ?? $this->spa()->getJson('/api/devices')->json())->firstWhere('ref', 'R58N123ABC')['online']);
+    }
+
+    public function test_the_dashboard_knows_where_the_agent_is_and_whether_it_is_running(): void
+    {
+        $status = fn () => $this->actingAs($this->user->fresh())->spa()->getJson('/api/publishing/agent')->assertOk();
+        $status()->assertJsonPath('online', false)->assertJsonPath('url', null);
+
+        $this->agent()->postJson('/api/agent/hello', [
+            'phones' => [['ref' => 'emulator-5554', 'name' => 'Emulator 5554', 'kind' => 'emulator']],
+            'mirror_url' => 'http://localhost:8765',
+            'agent' => ['host' => 'STUDIO-PC', 'os' => 'Windows', 'version' => '1.1', 'adb' => true, 'scrcpy' => false],
+        ])->assertOk();
+
+        $status()->assertJsonPath('online', true)->assertJsonPath('url', 'http://localhost:8765')
+            ->assertJsonPath('host', 'STUDIO-PC')->assertJsonPath('adb', true)->assertJsonPath('scrcpy', false);
+        $this->assertSame('emulator', $this->user->devices()->where('ref', 'emulator-5554')->first()->meta['kind']);
+
+        // An agent that stopped checking in is shown as not running.
+        $this->travel(5)->minutes();
+        $status()->assertJsonPath('online', false)->assertJsonPath('host', 'STUDIO-PC');
+    }
+
+    public function test_an_idle_phone_sends_its_screen_for_the_thumbnail(): void
+    {
+        $this->agent()->postJson('/api/agent/devices/phone-1/screen', ['file' => UploadedFile::fake()->image('screen.png')])->assertOk();
+        $this->assertNotNull($this->phone->refresh()->last_screenshot);
+        Storage::disk('local')->assertExists($this->phone->last_screenshot);
+        $this->actingAs($this->user)->spa()->get("/api/devices/{$this->phone->id}/screenshot")->assertOk();
+
+        $this->agent()->postJson('/api/agent/devices/not-mine/screen', ['file' => UploadedFile::fake()->image('screen.png')])->assertNotFound();
+    }
+
     public function test_another_studios_token_sees_nothing(): void
     {
         $run = $this->book();

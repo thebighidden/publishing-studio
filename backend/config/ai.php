@@ -77,47 +77,60 @@ return [
             'url' => env('HIGGSFIELD_URL', 'https://api.higgsfield.ai'),
             'key_id' => env('HIGGSFIELD_KEY_ID'),
             'key_secret' => env('HIGGSFIELD_KEY_SECRET'),
-            // The models your Higgsfield plan includes.
-            'plan' => array_values(array_filter(explode(',', (string) env('HIGGSFIELD_PLAN', 'ideogram-4,wan-2-7-i2v,soul-v2,soul,soul-cinema,grok-image-2,kling-3-pro,seedance-2,hailuo-2-3')))),
-            // route: the model's endpoint. image_field: where an input image goes. params: what may be passed through.
-            // price: dollars per output, from your plan, for the usage numbers (null if unknown).
+            // The models your Higgsfield plan includes. Empty means every model below that has a route.
+            'plan' => array_values(array_filter(explode(',', (string) env('HIGGSFIELD_PLAN', '')))),
+            // Each entry mirrors the model's request schema on docs.higgsfield.ai (checked 2026-10):
+            //   route         the text-to-image / text-to-video endpoint (null: none)
+            //   image_route   video: the image-to-video endpoint, used when a start frame is given
+            //   image_field   where input images go; image_list sends them as an array (up to max_images)
+            //   end_field     video: the field for an optional last frame (the second input image)
+            //   params        what the studio may pass through
+            //   aspects / durations / resolutions   the values the endpoint accepts (nearest is sent)
+            //   audio         'sound' ("on"/"off") or 'generate_audio' (bool); seed_range: [min, max]
+            //   defaults      fixed fields sent with every request
+            //   price         dollars per output, from your plan, for the usage numbers (null if unknown)
             'models' => [
-                'ideogram-4' => ['label' => 'Ideogram 4.0', 'kind' => 'image', 'route' => '/ideogram/v4.0',
+                'soul-2' => ['label' => 'Soul 2', 'family' => 'Higgsfield Soul', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/v2/standard',
+                    'params' => ['aspect_ratio', 'resolution', 'seed'], 'aspects' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'],
+                    'resolutions' => ['720p', '1080p'], 'seed_range' => [1, 1000000], 'defaults' => ['resolution' => '1080p', 'batch_size' => 1], 'price' => null,
+                    'purpose' => 'Photoreal fashion and editorial images with a shot-on-camera look'],
+                'soul' => ['label' => 'Soul', 'family' => 'Higgsfield Soul', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/standard',
+                    'image_field' => 'image_reference_url', 'params' => ['aspect_ratio', 'resolution', 'seed'], 'aspects' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'],
+                    'resolutions' => ['720p', '1080p'], 'seed_range' => [1, 1000000], 'defaults' => ['resolution' => '1080p', 'batch_size' => 1], 'price' => null,
+                    'purpose' => 'The original Soul; one reference image steers the look'],
+                'soul-cinema' => ['label' => 'Soul Cinema', 'family' => 'Higgsfield Soul', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/cinema',
+                    'params' => ['aspect_ratio', 'resolution', 'seed'], 'aspects' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'],
+                    'resolutions' => ['720p', '1080p'], 'seed_range' => [1, 1000000], 'defaults' => ['resolution' => '1080p', 'batch_size' => 1], 'price' => null,
+                    'purpose' => 'Cinematic stills: film lighting, lens character and grade'],
+                'grok-image-2' => ['label' => 'Grok Image 2', 'family' => 'xAI Grok', 'kind' => 'image', 'route' => '/xai/grok-imagine-image-2.0',
+                    'image_field' => 'image_urls', 'image_list' => true, 'max_images' => 10, 'params' => ['aspect_ratio', 'resolution'],
+                    'aspects' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'], 'resolutions' => ['1k', '2k'],
+                    'defaults' => ['resolution' => '2k', 'quality' => 'medium'], 'price' => null,
+                    'purpose' => 'Generates from text, or edits up to 10 reference images: product swaps, restyles'],
+                'ideogram-4' => ['label' => 'Ideogram 4.0', 'family' => 'Ideogram', 'kind' => 'image', 'route' => '/ideogram/v4.0',
                     'image_field' => 'image_url', 'params' => ['aspect_ratio', 'rendering_speed', 'image_weight'], 'price' => null,
                     'capabilities' => ['aspect_ratios' => ['1:1', '4:5', '9:16', '16:9'], 'resolutions' => [], 'max_inputs' => 1, 'input_optional' => true],
                     'purpose' => 'Photos and graphics from a prompt; remix a product photo'],
-                'wan-2-7-i2v' => ['label' => 'Wan 2.7 · image to video', 'kind' => 'video', 'route' => '/wan/v2.7/image-to-video',
-                    'image_field' => 'image_url', 'requires_image' => true, 'params' => ['duration', 'resolution', 'negative_prompt', 'seed'], 'price' => null,
-                    'capabilities' => ['durations' => [5, 10, 15], 'resolutions' => ['720p', '1080p'], 'max_inputs' => 1, 'requires_image' => true],
+                'kling-3-pro' => ['label' => 'Kling 3.0 Pro', 'family' => 'Kling', 'kind' => 'video',
+                    'route' => '/kling-video/v3.0/pro/text-to-video', 'image_route' => '/kling-video/v3.0/pro/image-to-video',
+                    'image_field' => 'image_url', 'end_field' => 'last_image_url', 'params' => ['aspect_ratio', 'duration', 'audio'],
+                    'aspects' => ['16:9', '9:16', '1:1'], 'durations' => [5, 8, 10, 15], 'audio' => 'sound', 'price' => null,
+                    'purpose' => 'Strong motion and physics with native sound, up to 15 s; start and end frames'],
+                'seedance-2' => ['label' => 'Seedance 2.0', 'family' => 'ByteDance Seedance', 'kind' => 'video',
+                    'route' => '/bytedance/seedance-2.0/text-to-video', 'image_route' => '/bytedance/seedance-2.0/image-to-video',
+                    'image_field' => 'image_url', 'end_field' => 'end_image_url', 'params' => ['aspect_ratio', 'duration', 'resolution', 'audio'],
+                    'aspects' => ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], 'durations' => [5, 8, 10, 15],
+                    'resolutions' => ['480p', '720p', '1080p', '4k'], 'audio' => 'generate_audio', 'defaults' => ['resolution' => '1080p'], 'price' => null,
+                    'purpose' => 'Cinematic shots with generated audio, up to 4K and 15 s; start and end frames'],
+                'hailuo-2-3' => ['label' => 'Hailuo 2.3', 'family' => 'MiniMax Hailuo', 'kind' => 'video',
+                    'route' => '/minimax/hailuo-2.3/standard/text-to-video', 'image_route' => '/minimax/hailuo-2.3/standard/image-to-video',
+                    'image_field' => 'image_url', 'params' => ['duration'], 'durations' => [6, 10], 'defaults' => ['prompt_optimizer' => true], 'price' => null,
+                    'purpose' => 'Fast, affordable 768p clips of 6 or 10 s; good for drafts'],
+                'wan-2-7-i2v' => ['label' => 'Wan 2.7 · image to video', 'family' => 'Wan', 'kind' => 'video', 'route' => '/wan/v2.7/image-to-video',
+                    'image_field' => 'image_url', 'requires_image' => true, 'params' => ['duration', 'resolution', 'negative_prompt', 'seed'],
+                    'resolutions' => ['720p', '1080p'], 'price' => null,
                     'purpose' => 'Short clips that bring a still to life'],
-                'soul-v2' => ['label' => 'Higgsfield Soul 2', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/v2/standard',
-                    'params' => ['aspect_ratio', 'resolution', 'seed', 'batch_size'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'], 'resolutions' => ['720p', '1080p'], 'default_resolution' => '1080p', 'max_inputs' => 0, 'seed' => true, 'max_outputs' => 4],
-                    'purpose' => 'High-end social photography and editorial portraits'],
-                'soul' => ['label' => 'Higgsfield Soul', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/standard',
-                    'reference_field' => 'image_reference_url', 'reference_list' => false, 'params' => ['aspect_ratio', 'resolution', 'seed', 'batch_size'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'], 'resolutions' => ['720p', '1080p'], 'default_resolution' => '1080p', 'max_inputs' => 1, 'input_optional' => true, 'seed' => true, 'max_outputs' => 4],
-                    'purpose' => 'Fashion-grade portraits with an optional reference'],
-                'soul-cinema' => ['label' => 'Soul Cinema', 'kind' => 'image', 'route' => '/higgsfield-ai/soul/cinema',
-                    'params' => ['aspect_ratio', 'resolution', 'seed', 'batch_size'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'], 'resolutions' => ['720p', '1080p'], 'default_resolution' => '1080p', 'max_inputs' => 0, 'seed' => true, 'max_outputs' => 4],
-                    'purpose' => 'Cinematic campaign stills and key art'],
-                'grok-image-2' => ['label' => 'Grok Imagine Image 2', 'kind' => 'image', 'route' => '/xai/grok-imagine-image-2.0',
-                    'reference_field' => 'image_urls', 'reference_list' => true, 'params' => ['aspect_ratio', 'resolution', 'seed', 'batch_size', 'quality'], 'extra' => ['quality' => 'medium'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['1:1', '4:3', '3:4', '3:2', '2:3', '16:9', '9:16'], 'resolutions' => ['1k', '2k'], 'default_resolution' => '2k', 'max_inputs' => 10, 'input_optional' => true, 'seed' => true, 'max_outputs' => 4],
-                    'purpose' => 'Fast, flexible social visuals with up to ten references'],
-                'kling-3-pro' => ['label' => 'Kling 3 Pro', 'kind' => 'video', 'route' => '/kling-video/v3.0/pro/text-to-video', 'i2v_route' => '/kling-video/v3.0/pro/image-to-video',
-                    'image_field' => 'image_url', 'end_frame_field' => 'last_image_url', 'audio_field' => 'sound', 'audio_values' => ['on', 'off'], 'params' => ['aspect_ratio', 'duration', 'seed'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['16:9', '9:16', '1:1'], 'durations' => [5, 8, 10, 15], 'max_inputs' => 2, 'input_optional' => true, 'end_frame' => true, 'audio' => true, 'seed' => true],
-                    'purpose' => 'Cinematic text-to-video or first/last-frame animation'],
-                'seedance-2' => ['label' => 'Seedance 2', 'kind' => 'video', 'route' => '/bytedance/seedance-2.0/text-to-video', 'i2v_route' => '/bytedance/seedance-2.0/image-to-video',
-                    'image_field' => 'image_url', 'end_frame_field' => 'end_image_url', 'audio_field' => 'generate_audio', 'params' => ['aspect_ratio', 'duration', 'resolution', 'seed'], 'price' => null,
-                    'capabilities' => ['aspect_ratios' => ['16:9', '9:16', '1:1', '4:3', '3:4', '21:9'], 'durations' => [5, 8, 10, 15], 'resolutions' => ['480p', '720p', '1080p', '4k'], 'default_resolution' => '1080p', 'max_inputs' => 2, 'input_optional' => true, 'end_frame' => true, 'audio' => true, 'seed' => true],
-                    'purpose' => 'Social video with sound, from text or first/last frames'],
-                'hailuo-2-3' => ['label' => 'Hailuo 2.3', 'kind' => 'video', 'route' => '/minimax/hailuo-2.3/standard/text-to-video', 'i2v_route' => '/minimax/hailuo-2.3/standard/image-to-video',
-                    'image_field' => 'image_url', 'params' => ['duration', 'seed'], 'extra' => ['prompt_optimizer' => true], 'price' => null,
-                    'capabilities' => ['durations' => [6, 10], 'max_inputs' => 1, 'input_optional' => true, 'seed' => true],
-                    'purpose' => 'Fast text-to-video or image animation for short-form content'],
+                'seedance-2-5' => ['label' => 'Seedance 2.5', 'family' => 'ByteDance Seedance', 'kind' => 'video', 'route' => null, 'purpose' => 'Reference to video'],
             ],
         ],
 
@@ -148,6 +161,21 @@ return [
             'local' => true,
             'url' => env('INVOKE_URL'),
             'queue' => env('INVOKE_QUEUE', 'default'),
+        ],
+
+        // A ComfyUI server running exported workflows on your own GPU (start it with --listen).
+        // From inside Docker, a server on this computer is http://host.docker.internal:8188.
+        'comfyui' => [
+            'reach' => 'ComfyUI',
+            'local' => true,
+            'url' => env('COMFYUI_URL'),
+            'timeout_seconds' => 300,
+            // label, purpose, and the workflow file in resources/comfyui/ with which of its inputs the studio sets.
+            'workflows' => [
+                'z-image-turbo' => ['label' => 'Z-Image Turbo', 'kind' => 'image', 'file' => 'z_image_turbo.json',
+                    'unet' => 'z_image_turbo_bf16.safetensors', 'purpose' => 'Fast photoreal images on your own GPU, free per image',
+                    'prompt' => ['57:27', 'text'], 'seed' => ['57:3', 'seed'], 'width' => ['57:13', 'width'], 'height' => ['57:13', 'height'], 'output' => '9'],
+            ],
         ],
 
         // Speech from a VoiceStudio server (OmniVoice), through its OpenAI-compatible

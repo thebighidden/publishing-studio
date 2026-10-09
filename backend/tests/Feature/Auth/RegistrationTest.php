@@ -25,7 +25,7 @@ class RegistrationTest extends TestCase
         ], $overrides);
     }
 
-    public function test_new_users_can_register_and_are_signed_in(): void
+    public function test_new_users_can_register_and_are_signed_in_without_confirming(): void
     {
         Notification::fake();
 
@@ -33,26 +33,22 @@ class RegistrationTest extends TestCase
 
         $response->assertCreated()
             ->assertJsonPath('email', 'maya@studio.co')
-            ->assertJsonPath('email_verified', false)
+            ->assertJsonPath('email_verified', true)
             ->assertJsonPath('timezone', 'Europe/Paris')
             ->assertJsonPath('preferences.platforms', ['instagram', 'linkedin'])
             ->assertJsonPath('has_password', true);
 
         $user = User::firstWhere('email', 'maya@studio.co');
         $this->assertAuthenticatedAs($user);
-        Notification::assertSentTo($user, VerifyEmail::class);
+        Notification::assertNotSentTo($user, VerifyEmail::class);
     }
 
-    public function test_the_confirmation_link_points_back_through_the_app(): void
+    public function test_a_new_account_can_use_ai_right_away(): void
     {
-        Notification::fake();
-
         $this->spa()->postJson('/api/auth/register', $this->payload())->assertCreated();
 
-        $user = User::firstWhere('email', 'maya@studio.co');
-        Notification::assertSentTo($user, VerifyEmail::class, function (VerifyEmail $n) use ($user) {
-            return str_contains($n->toMail($user)->actionUrl, '/api/auth/verify-email/'.$user->id.'/');
-        });
+        // Past the `verified` gate (that would be a 403): the empty request fails validation instead.
+        $this->spa()->postJson('/api/generations', [])->assertStatus(422);
     }
 
     public function test_email_must_be_unique(): void

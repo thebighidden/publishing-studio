@@ -1,26 +1,30 @@
 import { useEffect, useState } from 'react'
 import { motion } from 'framer-motion'
-import { Bot, CirclePause, CirclePlay, Copy, Eye, EyeOff, KeyRound, Plus, RefreshCw, Smartphone, Trash2 } from 'lucide-react'
+import { Bot, CirclePause, CirclePlay, Copy, Eye, EyeOff, KeyRound, MonitorSmartphone, Plus, Radar, RefreshCw, Smartphone, Trash2 } from 'lucide-react'
 import { Serif } from '../../components/ui/Reveal'
-import { api, ApiError, type Device, type PublishingRun } from '../../lib/api'
+import { api, ApiError, type AgentStatus, type Device, type PublishingRun } from '../../lib/api'
 import { ease } from '../../lib/motion'
 import { cn } from '../../lib/cn'
 import { fmtRelative, useApi, useInvalidate } from '../data'
 import { useToast } from '../toast'
+import { LiveView } from '../phones/LiveView'
+import { ScanDevices } from '../phones/ScanDevices'
 import { Btn, EmptyState, FieldError, inputClass, Label, Modal, PageHeader, Segmented, Skeleton, Stagger } from '../ui'
 
 /** /dashboard/phones: the phones that publish, their latest screens, and the automation service. */
 export default function Phones() {
   const { data: devices, loading } = useApi<Device[]>('/devices')
   const { data: runs } = useApi<PublishingRun[]>('/publishing/runs')
+  const { data: agent } = useApi<AgentStatus>('/publishing/agent')
   const [editing, setEditing] = useState<Device | 'new' | null>(null)
+  const [scanning, setScanning] = useState(false)
   const invalidate = useInvalidate()
 
-  // While a phone is working, keep its live strip moving.
+  // While a phone is working, keep its live strip moving; otherwise check now and then, so a
+  // phone plugged into the agent's computer appears without a reload.
   const busy = devices?.some((d) => d.status === 'busy') ?? false
   useEffect(() => {
-    if (!busy) return
-    const t = window.setInterval(invalidate, 4000)
+    const t = window.setInterval(invalidate, busy ? 4000 : 15000)
     return () => window.clearInterval(t)
   }, [busy, invalidate])
 
@@ -33,15 +37,37 @@ export default function Phones() {
             The phones that <Serif>post.</Serif>
           </>
         }
-        sub="One job runs on a phone at a time. The built-in simulator needs nothing else; real phones are driven by the automation service below."
+        sub="One job runs on a phone at a time. The built-in simulator needs nothing else; real phones plug into a computer running the FlowAI agent, and appear here on their own."
         actions={
-          <Btn variant="primary" icon={Plus} onClick={() => setEditing('new')}>
-            Add a phone
-          </Btn>
+          <div className="flex gap-2">
+            <Btn variant="subtle" icon={Plus} onClick={() => setEditing('new')}>
+              Add a phone
+            </Btn>
+            <Btn variant="primary" icon={Radar} onClick={() => setScanning(true)}>
+              Scan for devices
+            </Btn>
+          </div>
         }
       />
 
-      <Stagger i={0} className="mt-10">
+      {agent && (
+        <p className="mt-6 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-[10.5px] text-dim">
+          <span className={cn('size-1.5 rounded-full', agent.online ? 'bg-ok' : 'bg-draft')} />
+          {agent.online ? (
+            <>
+              Agent running on <span className="text-muted">{agent.host ?? 'its computer'}</span>
+              <span>· adb {agent.adb ? '✓' : '✗'}</span>
+              <span>· scrcpy {agent.scrcpy ? '✓' : '—'}</span>
+            </>
+          ) : agent.last_seen_at ? (
+            <>Agent not running · last seen on {agent.host} {fmtRelative(agent.last_seen_at)}</>
+          ) : (
+            <>No agent yet · start it on the computer your phones plug into (see below)</>
+          )}
+        </p>
+      )}
+
+      <Stagger i={0} className="mt-6">
         {!devices && loading ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((i) => (
@@ -71,6 +97,7 @@ export default function Phones() {
       <AutomationService />
 
       <PhoneForm open={editing !== null} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+      <ScanDevices open={scanning} onClose={() => setScanning(false)} devices={devices ?? []} />
     </div>
   )
 }
@@ -87,7 +114,13 @@ function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; r
   const toast = useToast()
   const invalidate = useInvalidate()
   const [acting, setActing] = useState(false)
-  const status = STATUS[d.status] ?? STATUS.offline
+  const [watching, setWatching] = useState(false)
+  // An agent's phone that has stopped checking in is offline, whatever it was last doing.
+  const status = (d.driver === 'http' && !d.online && d.status !== 'busy' ? STATUS.offline : STATUS[d.status]) ?? STATUS.offline
+  const details =
+    d.driver === 'simulator'
+      ? `Simulator · ${d.profile}`
+      : [d.agent_kind === 'simulator' ? 'Agent simulator' : d.agent_kind === 'emulator' ? 'Android emulator' : (d.model ?? 'Phone'), d.android && `Android ${d.android}`, d.ref].filter(Boolean).join(' · ')
 
   const togglePause = async () => {
     setActing(true)
@@ -117,8 +150,8 @@ function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; r
           <button type="button" onClick={onEdit} className="block max-w-full truncate text-left text-[14px] font-medium tracking-[-0.01em] hover:underline">
             {d.name}
           </button>
-          <p className="truncate text-[12px] text-dim">
-            {d.driver === 'simulator' ? `Simulator · ${d.profile}` : `Automation service · ${d.ref ?? 'no device ID'}`}
+          <p className="truncate text-[12px] text-dim" title={details}>
+            {details}
           </p>
         </div>
         <span className="flex shrink-0 items-center gap-1.5 font-mono text-[10.5px] text-dim">
@@ -146,15 +179,23 @@ function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; r
         </a>
       )}
 
-      <div className="mt-auto flex items-center justify-between border-t border-line px-4 py-2.5">
-        <span className="truncate font-mono text-[10.5px] text-dim">
+      <div className="mt-auto flex items-center justify-between gap-2 border-t border-line px-4 py-2.5">
+        <span className="min-w-0 truncate font-mono text-[10.5px] text-dim">
           {d.accounts.length > 0 ? d.accounts.map((a) => `@${a.handle}`).join(', ') : 'No accounts'}
           {d.last_seen_at ? ` · seen ${fmtRelative(d.last_seen_at)}` : ''}
         </span>
-        <Btn size="sm" variant={d.paused ? 'ghost' : 'subtle'} icon={d.paused ? CirclePlay : CirclePause} loading={acting} onClick={togglePause}>
-          {d.paused ? 'Resume' : 'Pause'}
-        </Btn>
+        <span className="flex shrink-0 gap-1.5">
+          {d.mirror_url && d.online && (
+            <Btn size="sm" variant="subtle" icon={MonitorSmartphone} onClick={() => setWatching(true)}>
+              Live
+            </Btn>
+          )}
+          <Btn size="sm" variant={d.paused ? 'ghost' : 'subtle'} icon={d.paused ? CirclePlay : CirclePause} loading={acting} onClick={togglePause}>
+            {d.paused ? 'Resume' : 'Pause'}
+          </Btn>
+        </span>
       </div>
+      {d.mirror_url && <LiveView device={d} open={watching} onClose={() => setWatching(false)} />}
     </motion.article>
   )
 }
@@ -193,6 +234,7 @@ function AutomationService() {
   }
 
   const endpoints = [
+    ['POST', '/api/agent/hello'],
     ['GET', '/api/agent/next-job?device_ref=…'],
     ['POST', '/api/agent/runs/{run}/steps'],
     ['POST', '/api/agent/runs/{run}/screenshot'],
@@ -209,10 +251,24 @@ function AutomationService() {
             The automation service
           </h2>
           <p className="mt-1 max-w-2xl text-[12px] leading-snug text-dim">
-            The Python agent drives real phones against this API: it asks for the next job on its phone, reports steps and
-            screenshots as it goes, and finishes — with proof, a failure, or honestly uncertain. Every call is signed with
-            this token as <span className="font-mono text-[11px]">Authorization: Bearer …</span>.
+            The FlowAI agent (<span className="font-mono text-[11px]">agent/</span> in the repo) runs on the computer your phones are plugged into. It
+            registers them here, asks for each phone’s next job, drives the app through named targets, reports steps and
+            screenshots as it goes, and finishes — with proof, a failure, or honestly uncertain. It also serves each phone’s
+            live screen. Every call is signed with this token as <span className="font-mono text-[11px]">Authorization: Bearer …</span>.
           </p>
+        </div>
+        <div className="border-b border-line px-5 py-4">
+          <Label>Connect a phone</Label>
+          <ol className="mt-2 grid gap-1.5 text-[12px] leading-snug text-muted md:grid-cols-2">
+            <li>1. On the phone: Settings → About → tap Build number 7 times, then Developer options → USB debugging on.</li>
+            <li>2. Plug it in with USB and accept “Allow USB debugging” on the phone. Sign in to Instagram or X there, by hand.</li>
+            <li>
+              3. Put the token below in <span className="font-mono text-[11px]">agent/.env</span> as{' '}
+              <span className="font-mono text-[11px]">FLOWAI_AGENT_TOKEN</span>, then run{' '}
+              <span className="font-mono text-[11px]">python -m flowai_agent</span> in <span className="font-mono text-[11px]">agent/</span>.
+            </li>
+            <li>4. The phone appears above within 30 seconds. Link an account to it under Accounts and turn automation on.</li>
+          </ol>
         </div>
         <div className="grid gap-5 px-5 py-4 lg:grid-cols-2">
           <div>

@@ -1,0 +1,4 @@
+httpx>=0.27
+Pillow>=10.4
+# The bundled ffmpeg: decodes the scrcpy live stream, and renders the simulator's videos.
+imageio-ffmpeg>=0.5

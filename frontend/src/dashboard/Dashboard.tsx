@@ -12,8 +12,10 @@ import Calendar from './pages/Calendar'
 import Campaigns from './pages/Campaigns'
 import Comments from './pages/Comments'
 import Create from './pages/Create'
+import Gallery from './pages/Gallery'
 import Inbox from './pages/Inbox'
 import Investigations from './pages/Investigations'
+import Lab from './pages/Lab'
 import Library from './pages/Library'
 import Models from './pages/Models'
 import Overview from './pages/Overview'
@@ -32,6 +34,8 @@ const PAGES: Record<string, ComponentType> = {
   '/dashboard/inbox': Inbox,
   '/dashboard/accounts': Accounts,
   '/dashboard/studio': Studio,
+  '/dashboard/lab': Lab,
+  '/dashboard/gallery': Gallery,
   '/dashboard/campaigns': Campaigns,
   '/dashboard/create': Create,
   '/dashboard/library': Library,

@@ -42,19 +42,8 @@ class ProfileController extends Controller
             $data['preferences'] = array_merge($user->preferences ?? [], $data['preferences']);
         }
 
-        $user->fill($data);
-
-        // A new address has to be confirmed again.
-        $emailChanged = $user->isDirty('email');
-        if ($emailChanged) {
-            $user->email_verified_at = null;
-        }
-
-        $user->save();
-
-        if ($emailChanged) {
-            $user->sendEmailVerificationNotification();
-        }
+        // A new address doesn't need confirming: there's no email confirmation step.
+        $user->fill($data)->save();
 
         return UserResource::make($user);
     }

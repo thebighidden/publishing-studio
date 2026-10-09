@@ -19,6 +19,74 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
  */
 class AgentController extends Controller
 {
+    /**
+     * The agent says which phones it can drive right now. New ones appear on the Phones page as
+     * HTTP phones (named by their model, renameable), known ones are marked seen; the address of
+     * the agent's live view is kept so the dashboard can open it.
+     */
+    public function hello(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'phones' => ['present', 'array', 'max:50'],
+            'phones.*.ref' => ['required', 'string', 'max:120'],
+            'phones.*.name' => ['nullable', 'string', 'max:80'],
+            'phones.*.model' => ['nullable', 'string', 'max:80'],
+            'phones.*.android' => ['nullable', 'string', 'max:20'],
+            'phones.*.width' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'phones.*.height' => ['nullable', 'integer', 'min:0', 'max:10000'],
+            'phones.*.kind' => ['nullable', Rule::in(['adb', 'emulator', 'simulator'])],
+            'mirror_url' => ['nullable', 'url', 'max:200'],
+            'agent' => ['nullable', 'array'],
+            'agent.host' => ['nullable', 'string', 'max:120'],
+            'agent.os' => ['nullable', 'string', 'max:40'],
+            'agent.version' => ['nullable', 'string', 'max:20'],
+            'agent.adb' => ['nullable', 'boolean'],
+            'agent.scrcpy' => ['nullable', 'boolean'],
+        ]);
+        $user = $request->user();
+        // The agent itself, so the Phones page knows where to scan even before any phone exists.
+        $user->forceFill(['agent' => array_merge($data['agent'] ?? [], [
+            'url' => $data['mirror_url'] ?? null,
+            'seen_at' => now()->toIso8601ZuluString(),
+        ])])->save();
+
+        $phones = collect($data['phones'])->map(function (array $p) use ($user, $data) {
+            $device = $user->devices()->firstOrNew(['driver' => 'http', 'ref' => $p['ref']]);
+            $device->name ??= $p['name'] ?? $p['model'] ?? $p['ref'];
+            $device->status = $device->booked_run_id ? 'busy' : 'idle';
+            $device->last_seen_at = now();
+            $device->meta = array_merge($device->meta ?? [], array_filter([
+                'model' => $p['model'] ?? null,
+                'android' => $p['android'] ?? null,
+                'screen' => ($p['width'] ?? 0) && ($p['height'] ?? 0) ? [$p['width'], $p['height']] : null,
+                'kind' => $p['kind'] ?? 'adb',
+                'mirror_url' => $data['mirror_url'] ?? null,
+            ], fn ($v) => $v !== null));
+            $device->save();
+
+            return ['ref' => $device->ref, 'id' => $device->id, 'name' => $device->name, 'paused' => $device->isPaused()];
+        });
+
+        return response()->json(['phones' => $phones->values()]);
+    }
+
+    /** An idle phone's screen, so the Phones page shows what it's on between runs. */
+    public function screen(Request $request, string $ref): JsonResponse
+    {
+        $device = $request->user()->devices()->where('driver', 'http')->where('ref', $ref)->first();
+        abort_unless($device, 404, 'No HTTP phone of yours has that device ID.');
+        $request->validate(['file' => ['required', 'image', 'max:10240']]);
+        $path = "devices/{$device->user_id}/{$device->id}/screen.png";
+        Storage::disk('local')->put($path, (string) file_get_contents($request->file('file')->getRealPath()));
+        // During a run the run's own screenshots are the ones that count.
+        if (! $device->booked_run_id) {
+            $device->update(['last_screenshot' => $path]);
+        }
+        $device->update(['last_seen_at' => now()]);
+
+        return response()->json(['ok' => true]);
+    }
+
     /** The run booked on one of the caller's phones, with everything needed to drive it. 204 when idle. */
     public function nextJob(Request $request, Publisher $publisher): JsonResponse
     {

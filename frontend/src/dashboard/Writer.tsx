@@ -21,7 +21,6 @@ const capitalize = (s: string) => s[0].toUpperCase() + s.slice(1)
 
 function messageFor(e: unknown) {
   if (!(e instanceof ApiError)) return 'Something went wrong. Try again.'
-  if (e.status === 403) return 'Confirm your email address to use AI writing.'
   if (e.status === 429) return 'That’s a lot of writing in a short time. Give it a minute.'
   if (e.status === 422) return e.field('brief') ?? e.field('platforms') ?? e.message
   return e.message
