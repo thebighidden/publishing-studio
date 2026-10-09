@@ -47,22 +47,102 @@ ANSWER = {
     "required": ["published", "confirmed_on_profile", "note"],
 }
 # Words in the agent's own log that mean it may already have tapped the publish button.
-SUBMIT_WORDS = ("share", "publish", "post now", "tweet", "upload")
+SUBMIT_WORDS = ("share", "publish", "post now", "tweet", "upload", "post button", "tap post", "click post", "'post'", '"post"')
+
+
+X_MAX_CHARS = 280
+# Where each app shows what the account posted, for the check after publishing.
+PROFILE = {
+    "instagram": "open the profile and check that the newest post (or the story ring, for a story) is this one",
+    "facebook": "open the profile or Page it was posted from and check that the newest post is this one",
+    "x": "open the profile and check that the newest post on the timeline is this one",
+}
+
+
+def needs_media(platform: str, placement: str) -> bool:
+    """Instagram posts, and stories and Reels anywhere, can't be text alone."""
+    return platform in ("instagram", "tiktok", "youtube", "pinterest") or placement in ("story", "reel")
+
+
+def fit_caption(platform: str, caption: str) -> str:
+    caption = caption.strip()
+    if platform == "x" and len(caption) > X_MAX_CHARS:
+        cut = caption[: X_MAX_CHARS - 1]
+        return (cut[: cut.rfind(" ")] if " " in cut else cut).rstrip() + "…"
+    return caption
 
 
 def goal_for(platform: str, handle: str, caption: str, placement: str, device_path: Optional[str], kind: str) -> str:
     app = APPS.get(platform, platform.title() or "the app")
-    what = {"reel": "a Reel", "story": "a story"}.get(placement, "a feed post")
+    what = {"reel": "a Reel", "story": "a story"}.get(placement, "a post" if platform == "x" else "a feed post")
     lines = [f"Publish {what} on {app}" + (f" from the account @{handle}" if handle else "") + "."]
     if device_path:
         lines.append(f"The {kind} to post is already on the phone at {device_path}; it is the newest item in the gallery. Use that one.")
-    lines.append("Use exactly this caption, character for character, between the markers (do not include the markers):")
-    lines.append(f"<<<CAPTION\n{caption}\nCAPTION>>>")
-    lines.append(f"Open the {app} app, start a new post, choose that {kind}, set the caption, and publish it. "
-                 "Then open the profile and check that the newest post is this one, with this caption.")
+    if placement == "story":
+        lines.append("Stories have no caption: don't add any text or stickers.")
+        steps = f"Open the {app} app, add a new story, choose that {kind}, and share it to your story."
+    else:
+        lines.append("Use exactly this text, character for character, between the markers (do not include the markers):")
+        lines.append(f"<<<CAPTION\n{fit_caption(platform, caption)}\nCAPTION>>>")
+        if device_path:
+            steps = f"Open the {app} app, start a new {'Reel' if placement == 'reel' else 'post'}, choose that {kind}, set the text, and publish it."
+        else:
+            steps = f"Open the {app} app, start a new post with text only (no photo or video), type the text, and publish it."
+    lines.append(f"{steps} Then {PROFILE.get(platform, 'open the profile and check that the newest post is this one')}.")
     lines.append(f"Do nothing else: don't change settings, follow, like, comment or message anyone. If {app} isn't installed, "
                  "or no account is signed in, stop and say so without trying to sign in.")
     return "\n".join(lines)
+
+
+NUMBERS = {
+    "type": "object",
+    "properties": {
+        "found": {"type": "boolean", "description": "true only if you found this exact post"},
+        "likes": {"type": ["integer", "null"]},
+        "replies": {"type": ["integer", "null"]},
+        "reposts": {"type": ["integer", "null"]},
+        "views": {"type": ["integer", "null"]},
+        "bookmarks": {"type": ["integer", "null"]},
+        "note": {"type": "string"},
+    },
+    "required": ["found", "note"],
+}
+
+
+def read_x_numbers(phone: HackPhone, post: dict[str, Any], timeout: float = 240) -> dict[str, int]:
+    """One X post's likes, replies, reposts, views and bookmarks, read by the hackathon agent.
+    Read-only. Raises RuntimeError with the reason when it can't."""
+    where = (f"Open this post in the X app: {post['post_url']}" if post.get("post_url")
+             else f"Open the X app, go to the profile @{post.get('handle') or ''}, and find the post whose text starts with: "
+                  f"<<<{(post.get('caption') or '')[:120]}>>>")
+    goal = (f"{where}\nRead the numbers shown on that post: replies, reposts, likes, bookmarks and views. "
+            "Write 1.2K as 1200. Use null for a number that isn't shown. Only look: don't like, repost, reply, "
+            "bookmark, follow or change anything. If you can't find that exact post, say found=false.")
+    task = phone.create_task(goal, mode="flash", max_steps=25, output_format="json", output_schema=NUMBERS)
+    deadline = time.monotonic() + timeout
+    current: dict[str, Any] = {}
+    while time.monotonic() < deadline:
+        current = phone.task(task["id"])
+        if current.get("status") in DONE:
+            break
+        time.sleep(3)
+    else:
+        phone.cancel_task(task["id"])
+        raise RuntimeError("the phone agent took too long to read the post")
+
+    result = current.get("result_data") if isinstance(current.get("result_data"), dict) else {}
+    if not result and isinstance(current.get("result_text"), str):
+        try:
+            result = json.loads(current["result_text"])
+        except ValueError:
+            result = {}
+    if current.get("status") not in FINISHED_OK or not result.get("found"):
+        raise RuntimeError(str(result.get("note") or current.get("error") or "the phone agent couldn't find the post")[:240])
+    names = {"likes": "likes", "replies": "comments", "reposts": "shares", "views": "views", "bookmarks": "saves"}
+    numbers = {ours: int(result[theirs]) for theirs, ours in names.items() if isinstance(result.get(theirs), (int, float)) and result[theirs] >= 0}
+    if not numbers:
+        raise RuntimeError("the phone agent found the post but read no numbers")
+    return numbers
 
 
 def describe(event: dict[str, Any]) -> str:
@@ -107,6 +187,11 @@ def run(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lock) 
     if len(media) > 1:
         api.finish(run_id, "failed", f"This post has {len(media)} media items; the phone agent posts one image or video at a time.")
         return "failed"
+    placement = post.get("placement") or ("reel" if post.get("format") == "video" else "feed")
+    if not media and needs_media(platform, placement):
+        what = f"a {placement}" if placement in ("story", "reel") else f"a {APPS.get(platform, platform)} post"
+        api.finish(run_id, "failed", f"{what[0].upper()}{what[1:]} needs a photo or video; this post has none.")
+        return "failed"
 
     log.info("run %s on %s through the hackathon agent: %s (%s)", run_id, ref, job.get("goal"), platform)
     outcome, note, post_url, task_id = "failed", "", None, None
@@ -123,8 +208,7 @@ def run(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lock) 
                 device_path = uploaded.get("device_path")
                 step("upload:media", True, f"{device_path} ({uploaded.get('bytes')} bytes)")
 
-            goal = goal_for(platform, account.get("handle", ""), post.get("caption") or "",
-                            post.get("placement") or ("reel" if post.get("format") == "video" else "feed"), device_path, kind)
+            goal = goal_for(platform, account.get("handle", ""), post.get("caption") or "", placement, device_path, kind)
             task = phone.create_task(goal, mode="pro", max_steps=min(200, max(10, budget * 2)), output_format="json", output_schema=ANSWER)
             task_id = task["id"]
             step("agent:task", True, f"hackathon agent task {task_id} (pro)")

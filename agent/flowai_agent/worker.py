@@ -234,12 +234,15 @@ class PhoneWorker(threading.Thread):
         """Between jobs: read likes, replies, reposts and views on this phone's recent X posts.
         FlowAI says which posts are due; a publishing job always comes first."""
         every = float(config.METRICS_SECONDS)
-        # Simulated phones show no counts; the hackathon phone has no screen tree to read.
-        if every <= 0 or self.ref.startswith(("sim-", "hack-")) or time.monotonic() - self._last_metrics < every:
+        # Simulated phones show no counts.
+        if every <= 0 or self.ref.startswith("sim-") or time.monotonic() - self._last_metrics < every:
             return
         self._last_metrics = time.monotonic()
         posts = self.api.metrics_jobs(self.ref)
         if not posts:
+            return
+        if self.ref.startswith("hack-"):
+            self._read_metrics_by_agent(posts)
             return
         from .publishing.x_metrics import X_PACKAGE, ReadFailed, read_post
 
@@ -262,6 +265,28 @@ class PhoneWorker(threading.Thread):
                 except Exception:  # noqa: BLE001
                     pass
                 driver.close()
+
+    def _read_metrics_by_agent(self, posts: list[dict[str, Any]]) -> None:
+        """The hackathon phone has no screen tree: its own agent reads each post instead."""
+        from .hackapi import HackApiError, HackPhone
+        from .publishing.hack_agent import read_x_numbers
+
+        with self.lock, HackPhone() as phone:
+            for post in posts:
+                if self.stop.is_set():
+                    break
+                try:
+                    numbers = read_x_numbers(phone, post)
+                    self.api.metrics(post["id"], numbers)
+                    log.info("%s: X post %s reads %s", self.ref, post["id"], numbers)
+                except HackApiError as exc:
+                    # The phone service being down isn't the post's fault: try again next round.
+                    log.info("%s: X numbers skipped, phone unavailable: %s", self.ref, exc)
+                    self._last_metrics = time.monotonic() - float(config.METRICS_SECONDS) + 300
+                    return
+                except RuntimeError as exc:
+                    self.api.metrics(post["id"], error=str(exc))
+                    log.info("%s: X post %s not read: %s", self.ref, post["id"], exc)
 
     def _idle_screen(self) -> None:
         """Keep the Phones page thumbnail fresh while nothing is running."""
