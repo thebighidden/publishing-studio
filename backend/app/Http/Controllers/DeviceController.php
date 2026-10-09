@@ -41,14 +41,40 @@ class DeviceController extends Controller
         return DeviceResource::make($device->load('accounts'));
     }
 
-    public function destroy(Device $device): Response
+    /**
+     * Delete a phone. Its accounts are unlinked and its publishing history stays. A phone the
+     * agent is still reporting would be registered again at its next check-in, so it's also
+     * hidden until brought back (`hidden` in the answer says so).
+     */
+    public function destroy(Request $request, Device $device): JsonResponse
     {
         Gate::authorize('delete', $device);
         abort_if($device->booked_run_id !== null, 409, 'This phone is running a job. Stop it first.');
 
+        $user = $request->user();
+        $hidden = $device->driver === 'http' && $device->ref && $device->last_seen_at?->gt(now()->subSeconds(90));
+        if ($hidden) {
+            $user->hidePhone($device->ref);
+        }
+        ActionLog::record($user, 'you', 'device.deleted', $device, "Deleted the phone “{$device->name}”.");
+        $device->accounts()->update(['device_id' => null]);
         $device->delete();
 
-        return response()->noContent();
+        return response()->json(['hidden' => (bool) $hidden]);
+    }
+
+    /** Phones deleted while the agent still reported them, so they stay off this page. */
+    public function hidden(Request $request): JsonResponse
+    {
+        return response()->json(['refs' => $request->user()->hiddenPhones()]);
+    }
+
+    /** Bring a hidden phone back: it's registered again at the agent's next check-in. */
+    public function unhide(Request $request, string $ref): JsonResponse
+    {
+        $request->user()->showPhone($ref);
+
+        return response()->json(['refs' => $request->user()->hiddenPhones()]);
     }
 
     /** A paused phone starts nothing new; the run already on it still finishes. */

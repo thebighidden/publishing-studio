@@ -45,12 +45,15 @@ class AgentController extends Controller
         ]);
         $user = $request->user();
         // The agent itself, so the Phones page knows where to scan even before any phone exists.
-        $user->forceFill(['agent' => array_merge($data['agent'] ?? [], [
+        // Merged into what's there, so what FlowAI keeps about the agent (hidden phones) survives.
+        $user->forceFill(['agent' => array_merge($user->agent ?? [], $data['agent'] ?? [], [
             'url' => $data['mirror_url'] ?? null,
             'seen_at' => now()->toIso8601ZuluString(),
         ])])->save();
 
-        $phones = collect($data['phones'])->map(function (array $p) use ($user, $data) {
+        // Phones deleted here while connected stay deleted: not registered again until shown.
+        $hidden = $user->hiddenPhones();
+        $phones = collect($data['phones'])->reject(fn (array $p) => in_array($p['ref'], $hidden, true))->map(function (array $p) use ($user, $data) {
             $device = $user->devices()->firstOrNew(['driver' => 'http', 'ref' => $p['ref']]);
             $device->name ??= $p['name'] ?? $p['model'] ?? $p['ref'];
             $device->status = $device->booked_run_id ? 'busy' : 'idle';

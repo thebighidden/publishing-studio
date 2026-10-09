@@ -47,6 +47,34 @@ class AgentApiTest extends TestCase
         return $this->withHeaders(['Authorization' => 'Bearer '.self::TOKEN, 'Accept' => 'application/json']);
     }
 
+    public function test_a_phone_deleted_while_connected_stays_deleted_until_brought_back(): void
+    {
+        $hello = fn () => $this->agent()->postJson('/api/agent/hello', ['phones' => [['ref' => 'phone-1', 'name' => 'Pixel 8', 'kind' => 'adb']]]);
+        $hello()->assertOk()->assertJsonCount(1, 'phones');
+        $offline = Device::factory()->for($this->user)->create(['driver' => 'http', 'ref' => 'old-pixel', 'last_seen_at' => now()->subDay()]);
+        $this->flushHeaders();
+        $this->actingAs($this->user);
+
+        // Connected: deleted, its account unlinked, and hidden so the next check-in can't bring it back.
+        $this->spa()->deleteJson("/api/devices/{$this->phone->id}")->assertOk()->assertJsonPath('hidden', true);
+        $this->assertNull($this->account->fresh()->device_id);
+        $this->assertDatabaseMissing('devices', ['id' => $this->phone->id]);
+        $hello()->assertOk()->assertJsonCount(0, 'phones');
+        $this->assertSame(0, $this->user->devices()->where('ref', 'phone-1')->count());
+        $this->flushHeaders();
+        $this->spa()->getJson('/api/devices/hidden')->assertJsonPath('refs', ['phone-1']);
+
+        // Brought back: the agent's next check-in registers it again.
+        $this->spa()->deleteJson('/api/devices/hidden/phone-1')->assertJsonPath('refs', []);
+        $hello()->assertOk()->assertJsonCount(1, 'phones');
+        $this->assertSame(1, $this->user->devices()->where('ref', 'phone-1')->count());
+
+        // Not seen for a day: just deleted, nothing to hide (plugging it in later brings it back).
+        $this->flushHeaders();
+        $this->spa()->deleteJson("/api/devices/{$offline->id}")->assertOk()->assertJsonPath('hidden', false);
+        $this->spa()->getJson('/api/devices/hidden')->assertJsonPath('refs', []);
+    }
+
     /** A booked run waiting on the phone: what the agent's loop starts from. */
     private function book(?Asset $media = null): PublishingRun
     {

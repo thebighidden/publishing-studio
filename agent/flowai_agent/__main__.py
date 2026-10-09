@@ -84,7 +84,8 @@ def run() -> int:
         try:
             phones = discover()
             registered = api.hello(phones, config.MIRROR_PUBLIC_URL, agent_info())
-            refs = {p["ref"] for p in phones}
+            # Only the phones FlowAI took: one deleted on the Phones page is left alone, not polled.
+            refs = {p["ref"] for p in registered}
             for p in registered:
                 if p.get("paused"):
                     log.debug("%s is paused in FlowAI", p["ref"])
@@ -97,7 +98,10 @@ def run() -> int:
                 workers.pop(ref).stop.set()
                 log.info("phone %s disconnected", ref)
             if not refs:
-                log.info("no phones yet: plug one in with USB debugging on, or set FLOWAI_SIMULATED_PHONES=sim-1")
+                if phones:
+                    log.info("FlowAI has hidden every phone here (deleted on its Phones page); bring one back there")
+                else:
+                    log.info("no phones yet: plug one in with USB debugging on, or set FLOWAI_SIMULATED_PHONES=sim-1")
         except ApiError as exc:
             log.error("%s", exc)
             if exc.status == 401:

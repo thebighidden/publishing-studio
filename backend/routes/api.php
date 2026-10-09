@@ -91,6 +91,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Where posts go: accounts, and the phones that publish to them.
     Route::apiResource('accounts', AccountController::class);
+    Route::get('devices/hidden', [DeviceController::class, 'hidden']);
+    Route::delete('devices/hidden/{ref}', [DeviceController::class, 'unhide'])->where('ref', '[^/]+');
     Route::apiResource('devices', DeviceController::class)->except('show');
     Route::post('devices/{device}/pause', [DeviceController::class, 'pause']);
     Route::post('devices/{device}/resume', [DeviceController::class, 'resume']);

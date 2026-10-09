@@ -17,6 +17,7 @@ export default function Phones() {
   const { data: runs } = useApi<PublishingRun[]>('/publishing/runs')
   const { data: agent } = useApi<AgentStatus>('/publishing/agent')
   const [editing, setEditing] = useState<Device | 'new' | null>(null)
+  const [removing, setRemoving] = useState<Device | null>(null)
   const [scanning, setScanning] = useState(false)
   const invalidate = useInvalidate()
 
@@ -88,15 +89,18 @@ export default function Phones() {
         ) : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {devices?.map((d, i) => (
-              <PhoneCard key={d.id} device={d} i={i} run={runs?.find((r) => r.id === d.booked_run_id && r.outcome === 'running')} onEdit={() => setEditing(d)} />
+              <PhoneCard key={d.id} device={d} i={i} run={runs?.find((r) => r.id === d.booked_run_id && r.outcome === 'running')} onEdit={() => setEditing(d)} onRemove={() => setRemoving(d)} />
             ))}
           </div>
         )}
       </Stagger>
 
+      <HiddenPhones />
+
       <AutomationService />
 
-      <PhoneForm open={editing !== null} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />
+      <PhoneForm open={editing !== null} device={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onRemove={(d) => (setEditing(null), setRemoving(d))} />
+      <RemovePhone device={removing} onClose={() => setRemoving(null)} />
       <ScanDevices open={scanning} onClose={() => setScanning(false)} devices={devices ?? []} />
     </div>
   )
@@ -110,7 +114,7 @@ const STATUS: Record<string, { dot: string; label: string }> = {
   error: { dot: 'bg-fail', label: 'Error' },
 }
 
-function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; run?: PublishingRun; onEdit: () => void }) {
+function PhoneCard({ device: d, i, run, onEdit, onRemove }: { device: Device; i: number; run?: PublishingRun; onEdit: () => void; onRemove: () => void }) {
   const toast = useToast()
   const invalidate = useInvalidate()
   const [acting, setActing] = useState(false)
@@ -193,10 +197,113 @@ function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; r
           <Btn size="sm" variant={d.paused ? 'ghost' : 'subtle'} icon={d.paused ? CirclePlay : CirclePause} loading={acting} onClick={togglePause}>
             {d.paused ? 'Resume' : 'Pause'}
           </Btn>
+          <button
+            type="button"
+            onClick={onRemove}
+            disabled={d.status === 'busy'}
+            aria-label={`Delete ${d.name}`}
+            title={d.status === 'busy' ? 'It’s publishing right now; delete it when the run ends' : 'Delete this phone'}
+            className="grid size-8 place-items-center rounded-md text-dim transition-colors hover:bg-fail/10 hover:text-fail disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-dim"
+          >
+            <Trash2 className="size-3.5" strokeWidth={1.75} />
+          </button>
         </span>
       </div>
       {d.mirror_url && <LiveView device={d} open={watching} onClose={() => setWatching(false)} />}
     </motion.article>
+  )
+}
+
+/**
+ * Delete a phone, after saying what that does: its accounts are unlinked, its publishing history
+ * stays, and a phone the agent is still connected to is hidden so it doesn't come straight back.
+ */
+function RemovePhone({ device, onClose }: { device: Device | null; onClose: () => void }) {
+  const toast = useToast()
+  const invalidate = useInvalidate()
+  const [busy, setBusy] = useState(false)
+  const connected = !!device && device.driver === 'http' && device.online
+
+  const remove = async () => {
+    if (!device) return
+    setBusy(true)
+    try {
+      const r = await api<{ hidden: boolean }>(`/devices/${device.id}`, { method: 'DELETE' })
+      invalidate()
+      toast(r?.hidden ? `“${device.name}” deleted and hidden. Bring it back under Hidden phones.` : `“${device.name}” deleted.`)
+      onClose()
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Couldn’t delete it.', 'error')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <Modal open={!!device} onClose={onClose} title={device ? `Delete “${device.name}”?` : 'Delete'} className="max-w-md">
+      {device && (
+        <div className="space-y-4">
+          <ul className="space-y-2 text-[12.5px] leading-snug text-muted">
+            <li>
+              {device.accounts.length
+                ? `${device.accounts.map((a) => `@${a.handle}`).join(', ')} will be unlinked from it; link ${device.accounts.length > 1 ? 'them' : 'it'} to another phone to keep posting automatically.`
+                : 'No accounts post through it.'}
+            </li>
+            <li>Its publishing history and screenshots stay.</li>
+            {connected && (
+              <li className="text-fg">
+                It’s still connected to the FlowAI agent, so it will be hidden rather than reappear in 30 seconds. You can bring it back from Hidden phones on this page.
+              </li>
+            )}
+          </ul>
+          <div className="flex justify-end gap-2 border-t border-line pt-4">
+            <Btn variant="subtle" onClick={onClose}>
+              Cancel
+            </Btn>
+            <Btn variant="danger" icon={Trash2} onClick={remove} loading={busy}>
+              Delete phone
+            </Btn>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+/** Phones deleted while the agent still had them: listed here, so they can be brought back. */
+function HiddenPhones() {
+  const { data } = useApi<{ refs: string[] }>('/devices/hidden')
+  const invalidate = useInvalidate()
+  const toast = useToast()
+  const [busy, setBusy] = useState<string | null>(null)
+  if (!data?.refs.length) return null
+
+  const show = async (ref: string) => {
+    setBusy(ref)
+    try {
+      await api(`/devices/hidden/${encodeURIComponent(ref)}`, { method: 'DELETE' })
+      invalidate()
+      toast('It will be back within 30 seconds, at the agent’s next check-in.')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Couldn’t bring it back.', 'error')
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg border border-line px-3 py-2.5 text-[12px] text-dim">
+      <EyeOff className="size-3.5" strokeWidth={1.75} />
+      Hidden phones:
+      {data.refs.map((ref) => (
+        <span key={ref} className="flex items-center gap-1.5 rounded-md border border-line-2 py-0.5 pl-2 pr-1 font-mono text-[11px] text-muted">
+          {ref}
+          <Btn size="sm" variant="ghost" icon={Eye} loading={busy === ref} onClick={() => show(ref)}>
+            Show again
+          </Btn>
+        </span>
+      ))}
+    </div>
   )
 }
 
@@ -309,15 +416,15 @@ function AutomationService() {
   )
 }
 
-function PhoneForm({ open, device, onClose }: { open: boolean; device: Device | null; onClose: () => void }) {
+function PhoneForm({ open, device, onClose, onRemove }: { open: boolean; device: Device | null; onClose: () => void; onRemove: (d: Device) => void }) {
   return (
     <Modal open={open} onClose={onClose} title={device ? device.name : 'Add a phone'} className="max-w-lg">
-      {open && <PhoneFields key={device?.id ?? 'new'} device={device} onDone={onClose} />}
+      {open && <PhoneFields key={device?.id ?? 'new'} device={device} onDone={onClose} onRemove={onRemove} />}
     </Modal>
   )
 }
 
-function PhoneFields({ device, onDone }: { device: Device | null; onDone: () => void }) {
+function PhoneFields({ device, onDone, onRemove }: { device: Device | null; onDone: () => void; onRemove: (d: Device) => void }) {
   const toast = useToast()
   const invalidate = useInvalidate()
   const [name, setName] = useState(device?.name ?? '')
@@ -343,18 +450,6 @@ function PhoneFields({ device, onDone }: { device: Device | null; onDone: () => 
       else toast(e instanceof Error ? e.message : 'Couldn’t save the phone.', 'error')
     } finally {
       setSaving(false)
-    }
-  }
-
-  const remove = async () => {
-    if (!device) return
-    try {
-      await api(`/devices/${device.id}`, { method: 'DELETE' })
-      invalidate()
-      toast(`“${device.name}” removed.`)
-      onDone()
-    } catch (e) {
-      toast(e instanceof Error ? e.message : 'Couldn’t remove it.', 'error')
     }
   }
 
@@ -419,8 +514,8 @@ function PhoneFields({ device, onDone }: { device: Device | null; onDone: () => 
 
       <div className="flex items-center justify-between border-t border-line pt-4">
         {device ? (
-          <Btn variant="danger" icon={Trash2} onClick={remove}>
-            Remove
+          <Btn variant="danger" icon={Trash2} onClick={() => onRemove(device)} disabled={device.status === 'busy'}>
+            Delete
           </Btn>
         ) : (
           <span />

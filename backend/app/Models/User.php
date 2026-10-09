@@ -135,6 +135,31 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Phones the agent still reports but that were deleted here: they aren't registered again
+     * at the agent's next check-in until they're brought back.
+     *
+     * @return list<string> device refs
+     */
+    public function hiddenPhones(): array
+    {
+        return array_values($this->agent['hidden_phones'] ?? []);
+    }
+
+    public function hidePhone(string $ref): void
+    {
+        $agent = $this->agent ?? [];
+        $agent['hidden_phones'] = array_values(array_unique([...($agent['hidden_phones'] ?? []), $ref]));
+        $this->forceFill(['agent' => $agent])->save();
+    }
+
+    public function showPhone(string $ref): void
+    {
+        $agent = $this->agent ?? [];
+        $agent['hidden_phones'] = array_values(array_diff($agent['hidden_phones'] ?? [], [$ref]));
+        $this->forceFill(['agent' => $agent])->save();
+    }
+
+    /**
      * @return HasMany<Board, $this>
      */
     public function boards(): HasMany
