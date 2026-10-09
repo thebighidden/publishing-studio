@@ -50,9 +50,15 @@ class InstagramRecipe(Recipe):
         ctx.tap("instagram.home_tab")
         ctx.tap("instagram.new_post")
         ctx.tap_if_present("system.allow_permission")
+        time.sleep(2)
+        # A reel left unfinished by an earlier run comes back as "Keep editing your draft?".
+        ctx.tap_if_present("instagram.start_new")
 
         if payload.placement == "reel":
-            ctx.tap_if_present("instagram.post_type_reel")
+            if ctx.wait_for("instagram.post_type_reel", timeout=8):
+                ctx.tap("instagram.post_type_reel")
+                time.sleep(2)
+                ctx.tap_if_present("instagram.start_new")
         elif payload.placement == "story":
             ctx.tap_if_present("instagram.post_type_story")
 
@@ -75,16 +81,27 @@ class InstagramRecipe(Recipe):
         shot = ctx.screenshot("before-share")
         ctx.note("pre-share", f"about to tap Share (screenshot {shot})")
         ctx.tap("instagram.share")
-        # Upload takes a moment. Waiting here is not proof of anything; the
+        # Some builds ask once more, or offer to also post to Facebook: decline the offer,
+        # confirm the share.
+        time.sleep(3)
+        ctx.tap_if_present("instagram.not_now")
+        if ctx.wait_for("instagram.share_confirm", timeout=3):
+            ctx.tap("instagram.share_confirm")
+            time.sleep(2)
+            ctx.tap_if_present("instagram.not_now")
+        # Upload takes a moment (a reel longer). Waiting here is not proof of anything; the
         # verify step is what decides.
-        time.sleep(6)
+        time.sleep(15 if payload.placement == "reel" else 6)
 
     def verify(self, ctx: RunContext, payload: PostPayload, baseline: dict[str, Any]) -> Evidence:
         shots: list[str] = []
         before = baseline.get("profile_posts", -1)
 
         self.back_in_app(ctx, "instagram.profile_tab")
+        # "Rate Instagram" and similar popups sit over the tabs after a share.
+        ctx.tap_if_present("instagram.dismiss_popup")
         ctx.tap_if_present("instagram.home_tab")
+        ctx.tap_if_present("instagram.dismiss_popup")
         ctx.tap("instagram.profile_tab")
         time.sleep(2.5)
         after, how = _profile_posts(ctx)

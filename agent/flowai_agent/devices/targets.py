@@ -50,6 +50,12 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"desc": "Photo thumbnail", "nth": 0},
         {"cls": "android.widget.ImageView", "clickable": True, "nth": 1},
     ],
+    # "Keep editing your draft?", left behind by a Reel that didn't finish: start clean.
+    "instagram.start_new": [
+        {"id": "auxiliary_button", "text": "Start new", "exact": False},
+        {"text": "Start new video", "exact": True},
+        {"text": "Start new", "exact": False},
+    ],
     "instagram.post_type_post": [
         {"text": "POST", "exact": True},
         {"text": "Post", "exact": True},
@@ -82,12 +88,38 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         # UI dump while the screen's own container is present, so it is located
         # inside that container. Calibrated on a Pixel 7a, 1080x2400.
         {"id": "followers_share_content", "box": [0.05, 0.38, 0.95, 0.43]},
+        # Instagram 448 "New reel" share screen: the "Write a caption and add hashtags…" row
+        # is missing from the UI dump too; it sits under the cover in the screen's
+        # content_view. Calibrated on a Pixel 7a, 1080x2400.
+        {"id": "content_view", "box": [0.03, 0.42, 0.95, 0.485]},
     ],
     "instagram.share": [
         {"id": "share_footer_button"},
         {"id": "next_button_textview", "text": "Share"},
+        # Instagram 448 "New reel" screen: the blue button under Save draft. It reads "Next"
+        # on that build, but it is the one that submits the reel.
+        {"id": "share_button", "exact": True},
         {"text": "Share", "exact": True},
         {"desc": "Share", "exact": True},
+    ],
+    # A last confirmation some builds show after the reel's button.
+    "instagram.share_confirm": [
+        {"text": "Share", "exact": True},
+        {"desc": "Share", "exact": True},
+        {"text": "Share now", "exact": True},
+    ],
+    # Popups that cover the tabs after posting ("Rate Instagram", tips): decline them.
+    "instagram.dismiss_popup": [
+        {"text": "No, thanks", "exact": True},
+        {"text": "No thanks", "exact": True},
+        {"text": "Not now", "exact": True},
+        {"text": "Not Now", "exact": True},
+    ],
+    # Offers to also post somewhere else (Facebook, a tutorial): always decline.
+    "instagram.not_now": [
+        {"text": "Not now", "exact": True},
+        {"text": "Not Now", "exact": True},
+        {"text": "Don't share", "exact": False},
     ],
     "instagram.home_tab": [
         {"id": "feed_tab"},

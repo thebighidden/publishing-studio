@@ -29,7 +29,7 @@ log = logging.getLogger("flowai.agent")
 RECIPES: dict[str, type[Recipe]] = {"instagram": InstagramRecipe, "facebook": FacebookRecipe, "x": XRecipe}
 # Taps that submit the post. Once one succeeded, a run that breaks afterwards can't know
 # whether the post went out, so it ends uncertain rather than failed (and isn't re-posted blind).
-SUBMIT_TARGETS = ("instagram.share", "facebook.post_button", "x.post_button", "x.post")
+SUBMIT_TARGETS = ("instagram.share", "instagram.share_confirm", "facebook.post_button", "x.post_button", "x.post")
 # What FlowAI accepts per step (AgentController::steps).
 ACTION_MAX, NOTE_MAX = 60, 200
 
@@ -163,6 +163,14 @@ def run_job(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lo
             error = f"{type(exc).__name__}: {exc}"
             log.error("run %s crashed:\n%s", run_id, traceback.format_exc())
         finally:
+            stuck_on: Optional[Any] = None
+            if evidence is None and driver is not None:
+                # A run that broke shows the screen it broke on, taken before the app is closed.
+                try:
+                    stuck_on = config.EVIDENCE_DIR / f"{run_id}_final_{uuid.uuid4().hex[:6]}.png"
+                    stuck_on.write_bytes(driver.screenshot())
+                except Exception:  # noqa: BLE001
+                    stuck_on = None
             if ctx is not None:
                 try:
                     recipe.cleanup(ctx)
@@ -172,14 +180,8 @@ def run_job(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lo
 
         outcome, note = decide(evidence, error, ctx)
         shots = [config.EVIDENCE_DIR / s for s in (evidence.screenshots if evidence else []) if s]
-        if not shots and driver is not None:
-            # A failed run still shows what the phone ended on.
-            try:
-                path = config.EVIDENCE_DIR / f"{run_id}_final_{uuid.uuid4().hex[:6]}.png"
-                path.write_bytes(driver.screenshot())
-                shots = [path]
-            except Exception:  # noqa: BLE001
-                pass
+        if not shots and stuck_on is not None:
+            shots = [stuck_on]
         for path in shots:
             if path.is_file():
                 try:
