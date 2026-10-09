@@ -166,7 +166,7 @@ export type Device = {
   android: string | null
   screen: [number, number] | null
   /** HTTP phones: 'adb' for a real phone on the agent's computer, 'simulator' for its stand-in. */
-  agent_kind: 'adb' | 'emulator' | 'simulator' | null
+  agent_kind: 'adb' | 'emulator' | 'simulator' | 'remote' | null
   /** The agent's live view and remote control, when it serves one. */
   mirror_url: string | null
   screenshot_url: string | null

@@ -242,6 +242,12 @@ class _Handler(BaseHTTPRequestHandler):
 def _frames(mirror: Mirror, ref: str):
     """JPEG frames: scrcpy's hardware-encoded stream when scrcpy is installed (up to 30 fps),
     otherwise screenshots (about 1-2 fps over USB). Stops when the viewer leaves."""
+    if ref.startswith("hack-"):
+        # The hackathon phone has its own shared live feed; screenshots are rationed to one a second.
+        from .devices import hack
+
+        yield from hack.relay.frames()
+        return
     if not ref.startswith("sim-"):
         from .devices import scrcpy
 

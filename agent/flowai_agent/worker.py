@@ -38,6 +38,10 @@ def driver_for(ref: str, options: Optional[dict[str, Any]] = None) -> DeviceDriv
         from .devices.simulator import SimulatorDriver
 
         return SimulatorDriver(ref, options)
+    if ref.startswith("hack-"):
+        from .devices.hack import HackDriver
+
+        return HackDriver(ref)
     from .devices.adb import AdbDriver
 
     return AdbDriver(ref)

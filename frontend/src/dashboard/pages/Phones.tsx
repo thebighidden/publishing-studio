@@ -120,7 +120,7 @@ function PhoneCard({ device: d, i, run, onEdit }: { device: Device; i: number; r
   const details =
     d.driver === 'simulator'
       ? `Simulator · ${d.profile}`
-      : [d.agent_kind === 'simulator' ? 'Agent simulator' : d.agent_kind === 'emulator' ? 'Android emulator' : (d.model ?? 'Phone'), d.android && `Android ${d.android}`, d.ref].filter(Boolean).join(' · ')
+      : [d.agent_kind === 'simulator' ? 'Agent simulator' : d.agent_kind === 'emulator' ? 'Android emulator' : d.agent_kind === 'remote' ? 'Hackathon phone (remote)' : (d.model ?? 'Phone'), d.android && `Android ${d.android}`, d.ref].filter(Boolean).join(' · ')
 
   const togglePause = async () => {
     setActing(true)

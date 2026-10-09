@@ -21,7 +21,7 @@ from typing import Any
 from . import config
 from . import scan as scanner
 from .api import ApiError, FlowAI
-from .devices import adb
+from .devices import adb, hack
 from .devices.base import DeviceError
 from .mirror import Mirror
 from .worker import PhoneWorker, driver_for
@@ -56,6 +56,10 @@ def discover() -> list[dict[str, Any]]:
         info = driver_for(ref).info()
         phones.append({"ref": ref, "name": f"Simulator {ref[4:]}", "model": info.model, "android": info.android,
                        "width": info.width, "height": info.height, "kind": "simulator"})
+    # The hackathon's remote phone, when agent/.env has its API base and team key.
+    remote = hack.discover()
+    if remote:
+        phones.append(remote)
     return phones
 
 

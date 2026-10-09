@@ -15,13 +15,14 @@ import time
 
 from .adb import AdbDriver
 from .base import DeviceDriver, DeviceError
+from .hack import HackDriver
 from .simulator import H as SIM_H
 from .simulator import W as SIM_W
 from .simulator import SimulatorDriver
 
 
 def _size(driver: DeviceDriver, landscape: bool) -> tuple[int, int]:
-    if isinstance(driver, AdbDriver):
+    if isinstance(driver, (AdbDriver, HackDriver)):
         w, h = driver.screen_size()
     else:
         w, h = SIM_W, SIM_H
@@ -49,6 +50,8 @@ def touch(driver: DeviceDriver, fx: float, fy: float, landscape: bool = False, h
             driver._shell("input", "tap", str(x), str(y))
     elif isinstance(driver, SimulatorDriver):
         _simulator_touch(driver, x, y)
+    elif isinstance(driver, HackDriver):
+        driver.tap_at(x, y, hold_ms)
     else:
         raise DeviceError(f"{driver.kind} does not support remote touch")
     return x, y
@@ -67,6 +70,15 @@ def drag(
         driver._shell("input", "swipe", str(x1), str(y1), str(x2), str(y2), str(duration_ms))
     elif isinstance(driver, SimulatorDriver):
         time.sleep(0.08)  # the simulator's screens do not scroll
+    elif isinstance(driver, HackDriver):
+        # Its API swipes by direction only: the drag's main direction, and how far it went.
+        dx, dy = end[0] - start[0], end[1] - start[1]
+        if abs(dx) < 0.02 and abs(dy) < 0.02:
+            driver.tap_at(x1, y1)
+            return
+        # A finger dragged upwards scrolls the content up: that's an "up" swipe.
+        direction = ("left" if dx < 0 else "right") if abs(dx) > abs(dy) else ("up" if dy < 0 else "down")
+        driver.swipe(direction, max(abs(dx), abs(dy)))
     else:
         raise DeviceError(f"{driver.kind} does not support remote drag")
 

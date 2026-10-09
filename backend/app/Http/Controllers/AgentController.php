@@ -34,7 +34,7 @@ class AgentController extends Controller
             'phones.*.android' => ['nullable', 'string', 'max:20'],
             'phones.*.width' => ['nullable', 'integer', 'min:0', 'max:10000'],
             'phones.*.height' => ['nullable', 'integer', 'min:0', 'max:10000'],
-            'phones.*.kind' => ['nullable', Rule::in(['adb', 'emulator', 'simulator'])],
+            'phones.*.kind' => ['nullable', Rule::in(['adb', 'emulator', 'simulator', 'remote'])],
             'mirror_url' => ['nullable', 'url', 'max:200'],
             'agent' => ['nullable', 'array'],
             'agent.host' => ['nullable', 'string', 'max:120'],
