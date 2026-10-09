@@ -3,6 +3,7 @@ import { Clapperboard, Image, Info, Type } from 'lucide-react'
 import { PLATFORMS, PlatformIcon } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
 import { cn } from '../../lib/cn'
+import { Engagement } from '../analytics/Engagement'
 import { BarList, Heatmap, LineChart, StatTile } from '../charts'
 import { PLATFORM_ORDER, useApi, type Analytics as AnalyticsData } from '../data'
 import { CountUp, PageHeader, Panel, Segmented, Skeleton, Stagger } from '../ui'
@@ -48,7 +49,7 @@ export default function Analytics() {
             What you <Serif>shipped.</Serif>
           </>
         }
-        sub="Your output over time: what you wrote, what you planned, and what went out."
+        sub="Your output over time, and how people answered it: likes, comments, shares and views from the platforms."
       />
 
       {/* Filters: one row, above everything they scope. */}
@@ -61,7 +62,7 @@ export default function Analytics() {
           options={RANGES.map((r) => ({ value: r, label: `Last ${r} days` }))}
         />
         <span className="ml-auto flex items-center gap-1.5 rounded-full border border-dashed border-line-2 px-2.5 py-1 font-mono text-[10px] uppercase tracking-[0.12em] text-dim">
-          <Info className="size-3" /> Output only · engagement needs connected accounts
+          <Info className="size-3" /> Engagement from connected accounts · hourly
         </span>
       </Stagger>
 
@@ -87,6 +88,12 @@ export default function Analytics() {
               <StatTile label="Drafts waiting" value={<CountUp value={data.totals.drafts} />} />
             </div>
           </Stagger>
+
+          {data.engagement && (
+            <Stagger i={2}>
+              <Engagement data={data.engagement} range={range} />
+            </Stagger>
+          )}
 
           <Stagger i={2}>
             <Panel

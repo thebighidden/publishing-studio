@@ -4,6 +4,7 @@ namespace App\Services\Publishing;
 
 use App\Enums\PostStatus;
 use App\Jobs\PublishPost;
+use App\Jobs\PublishViaApi;
 use App\Models\Account;
 use App\Models\ActionLog;
 use App\Models\Asset;
@@ -39,7 +40,8 @@ class Publisher
             ->where('status', PostStatus::Scheduled)
             ->where('scheduled_at', '<=', now())
             ->whereNotNull('approved_at') // only approved content publishes automatically (gate 6B)
-            ->whereHas('account', fn ($q) => $q->where('automation', true)->whereNotNull('device_id'))
+            // A phone to post from, or a connection to the platform's API.
+            ->whereHas('account', fn ($q) => $q->where('automation', true)->where(fn ($q) => $q->whereNotNull('device_id')->orWhereHas('apiConnection')))
             ->oldest('scheduled_at')
             ->limit(20)
             ->get();
@@ -70,14 +72,33 @@ class Publisher
      */
     public function open(Post $post, int $attempt = 1): ?PublishingRun
     {
-        $post->loadMissing(['account.device', 'user']);
+        $post->loadMissing(['account.device', 'account.apiConnection', 'user']);
         $account = $post->account;
-        $device = $account?->device;
-        if (! $account || ! $device || ! $post->isApproved() || ! $account->automation) {
+        if (! $account || ! $post->isApproved() || ! $account->automation || $post->user->publishingPaused()) {
+            return null; // the stop button: nothing starts while it's pressed
+        }
+
+        // Through the platform's API: no phone to book; a job publishes it and records each call.
+        if ($account->publishesViaApi()) {
+            $run = $post->runs()->create([
+                'user_id' => $post->user_id, 'device_id' => null, 'attempt' => $attempt,
+                'goal' => Str::limit(trim($post->title ?: $post->body), 140, ''), 'started_at' => now(),
+            ]);
+            $post->update(['status' => PostStatus::Publishing, 'error' => null]);
+            PublishViaApi::dispatch($run->id);
+
+            return $run;
+        }
+
+        $device = $account->device;
+        if (! $device && $account->apiConnection && $account->publish_via !== 'phone') {
+            // Its only way out is a connection that stopped working: say so instead of waiting.
+            $this->failForGood($post, $account->apiConnection->error ?: 'The account’s connection to its platform stopped working. Connect it again.');
+
             return null;
         }
-        if ($post->user->publishingPaused() || $device->isPaused()) {
-            return null; // the stop button: nothing starts while it's pressed
+        if (! $device || $device->isPaused()) {
+            return null;
         }
 
         $run = $post->runs()->create([
@@ -199,6 +220,30 @@ class Publisher
             'uncertain' => $this->uncertain($run, $note),
             default => $this->fail($run, $note ?: 'The agent reported failure.'),
         };
+    }
+
+    /**
+     * The end of a run through a platform's API. Published: confirmed, with the platform's own
+     * address for the post as proof. Refused: failed, and it tries again later only if waiting
+     * could help (rate limits, outages); otherwise it goes straight to a person.
+     *
+     * @param  array{external_id: string, url: string|null}|null  $result
+     */
+    public function finishApi(PublishingRun $run, ?array $result, ?string $error = null, bool $retry = false): void
+    {
+        if ($result) {
+            $run->post->update(['external_id' => $result['external_id'], 'published_via' => 'api']);
+            $this->settle($run, true, $result['url'], 'Published through the platform’s API (id '.$result['external_id'].').');
+
+            return;
+        }
+        if ($retry) {
+            $this->fail($run, (string) $error);
+
+            return;
+        }
+        $run->update(['status' => 'failed', 'error' => $error, 'ended_at' => now()]);
+        $this->failForGood($run->post, (string) $error);
     }
 
     /** The operator tries a failed (or unconfirmed) post again: a fresh attempt, right away. */

@@ -5,6 +5,8 @@ namespace App\Http\Controllers;
 use App\Models\ActionLog;
 use App\Models\Comment;
 use App\Services\Community\Community;
+use App\Services\Social\Engagement;
+use App\Services\Social\SocialApiError;
 use App\Services\Studio\Autonomy;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -54,8 +56,12 @@ class CommentController extends Controller
             $comment->update(['triage' => ['decision' => 'reply', 'reason' => $result['reason']], 'draft' => $result['draft'], 'status' => 'drafted']);
             // Mode B: a rule the operator approved sends it without the per-reply approval.
             if (app(Autonomy::class)->decide($account, 'comment.send_reply', ['today' => $account->repliesSentToday()]) === 'run') {
-                $this->deliver($comment, $comment->draft);
-                ActionLog::record($request->user(), 'agent:autonomy', 'comment.auto_replied', $comment, "Replied to @{$comment->author} by a mode-B rule.", 'auto');
+                try {
+                    $this->deliver($comment, $comment->draft);
+                    ActionLog::record($request->user(), 'agent:autonomy', 'comment.auto_replied', $comment, "Replied to @{$comment->author} by a mode-B rule.", 'auto');
+                } catch (SocialApiError) {
+                    // The draft waits in the inbox for a person instead.
+                }
             }
         } elseif ($result['decision'] === 'ignore') {
             $comment->update(['triage' => ['decision' => 'ignore', 'reason' => $result['reason']], 'status' => 'ignored']);
@@ -73,7 +79,11 @@ class CommentController extends Controller
         abort_unless(in_array($comment->status, ['drafted', 'human'], true), 409, 'Nothing to send on this comment.');
         $data = $request->validate(['reply' => ['required', 'string', 'max:1000']]);
 
-        $this->deliver($comment, $data['reply']);
+        try {
+            $this->deliver($comment, $data['reply']);
+        } catch (SocialApiError $e) {
+            abort(502, 'The platform didn’t take the reply: '.$e->getMessage());
+        }
         ActionLog::record($request->user(), 'you', 'comment.replied', $comment, "Replied to @{$comment->author}.");
 
         return response()->json($this->out($comment->fresh('account')));
@@ -97,10 +107,14 @@ class CommentController extends Controller
         return response()->noContent();
     }
 
-    /** The reply "goes out": recorded with its timestamp. No real platform call exists yet. */
+    /**
+     * The reply goes out: under the platform comment when it came in through a connected API,
+     * otherwise only recorded. If the platform refuses, the comment stays unsent.
+     */
     private function deliver(Comment $comment, string $reply): void
     {
-        $comment->update(['reply' => $reply, 'status' => 'sent', 'sent_at' => now()]);
+        $sentId = app(Engagement::class)->reply($comment, $reply);
+        $comment->update(['reply' => $reply, 'status' => 'sent', 'sent_at' => now(), 'reply_external_id' => $sentId ?: null]);
     }
 
     private function own(Request $request, Comment $comment): void
@@ -123,6 +137,8 @@ class CommentController extends Controller
             'draft' => $c->draft,
             'reply' => $c->reply,
             'sent_at' => $c->sent_at?->toIso8601ZuluString(),
+            'from_platform' => $c->external_id !== null,
+            'posted_at' => $c->posted_at?->toIso8601ZuluString(),
             'account' => $c->relationLoaded('account') && $c->account ? ['id' => $c->account->id, 'platform' => $c->account->platform, 'handle' => $c->account->handle] : null,
             'created_at' => $c->created_at?->toIso8601ZuluString(),
         ];

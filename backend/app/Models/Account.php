@@ -9,12 +9,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 /**
  * A social account the studio posts to, e.g. @maisoncire on Instagram. Its editorial profile
  * and memory shape everything written for it; its phone is where automated posts go out.
  */
-#[Fillable(['platform', 'handle', 'name', 'timezone', 'device_id', 'automation', 'autonomy', 'min_gap_minutes', 'profile'])]
+#[Fillable(['platform', 'handle', 'name', 'timezone', 'device_id', 'automation', 'autonomy', 'min_gap_minutes', 'profile', 'publish_via'])]
 class Account extends Model
 {
     /** @use HasFactory<AccountFactory> */
@@ -24,7 +25,10 @@ class Account extends Model
     public const AUTONOMY = ['approve_all', 'rules'];
 
     /** @var array<string, mixed> */
-    protected $attributes = ['automation' => false, 'autonomy' => 'approve_all', 'min_gap_minutes' => 60];
+    protected $attributes = ['automation' => false, 'autonomy' => 'approve_all', 'min_gap_minutes' => 60, 'publish_via' => 'auto'];
+
+    /** auto: the platform's API when connected, else the phone. api or phone: always that one. */
+    public const PUBLISH_VIA = ['auto', 'api', 'phone'];
 
     /** The editorial profile's fields, used in every generation for the account. */
     public const PROFILE_FIELDS = ['tone', 'topics', 'style', 'do', 'avoid', 'language', 'hashtags'];
@@ -108,6 +112,27 @@ class Account extends Model
     public function reposts(): HasMany
     {
         return $this->hasMany(Repost::class);
+    }
+
+    /**
+     * The official-API connection this account publishes and reads engagement through.
+     *
+     * @return HasOne<AccountConnection, $this>
+     */
+    public function apiConnection(): HasOne
+    {
+        return $this->hasOne(AccountConnection::class)->latestOfMany();
+    }
+
+    /** Whether a post for this account goes out through the API rather than a phone. */
+    public function publishesViaApi(): bool
+    {
+        if ($this->publish_via === 'phone') {
+            return false;
+        }
+        $connection = $this->apiConnection;
+
+        return $connection !== null && $connection->usable() && ($this->publish_via === 'api' || $this->publish_via === 'auto');
     }
 
     public function timezoneOrUsers(): string

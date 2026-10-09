@@ -35,6 +35,11 @@
         <env name="INVOKE_URL" value=""/>
         <env name="OMNIVOICE_URL" value=""/>
         <env name="OMNIVOICE_API_KEY" value=""/>
+        <env name="META_APP_ID" value=""/>
+        <env name="META_APP_SECRET" value=""/>
+        <env name="META_PUBLIC_MEDIA_URL" value=""/>
+        <env name="X_CLIENT_ID" value=""/>
+        <env name="X_CLIENT_SECRET" value=""/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

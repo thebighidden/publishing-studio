@@ -42,7 +42,44 @@ export type Post = {
   created_at: string
   updated_at: string
   campaign?: { id: number; name: string | null } | null
+  /** The platform's own id, when it went out through the platform's API. */
+  external_id?: string | null
+  published_via?: 'api' | null
+  metrics?: PostMetrics | null
 }
+
+/** A published post's latest numbers, read back from the platform (its API, or a phone for X). */
+export type PostMetrics = {
+  likes: number | null
+  comments: number | null
+  shares: number | null
+  saves: number | null
+  views: number | null
+  reach: number | null
+  /** Facebook only: like, love, haha, wow, sad, angry, care. */
+  reactions: Record<string, number> | null
+  source: 'api' | 'phone' | null
+  error: string | null
+  fetched_at: string | null
+}
+
+/** An account connected through a platform's official API (Meta or X). */
+export type Connection = {
+  id: number
+  provider: 'meta' | 'x'
+  kind: 'instagram' | 'facebook_page' | 'x'
+  platform: PlatformId
+  name: string | null
+  username: string | null
+  account_id: number | null
+  status: 'ok' | 'expired' | 'error'
+  error: string | null
+  token_expires_at: string | null
+  checked_at: string | null
+}
+
+/** GET /connections */
+export type Connections = { data: Connection[]; available: { meta: boolean; x: boolean }; public_media: boolean }
 
 /** An image, video or voiceover in the media library. */
 export type Asset = {
@@ -144,6 +181,9 @@ export type Account = {
   /** approve_all: mode A, every action waits. rules: mode B, approved rules run on their own. */
   autonomy: 'approve_all' | 'rules'
   min_gap_minutes: number
+  /** auto: the platform's API when connected, else the phone. */
+  publish_via: 'auto' | 'api' | 'phone'
+  connection?: Connection | null
   profile: EditorialProfile
   posts_count?: number
   created_at: string
@@ -319,6 +359,9 @@ export type Comment = {
   draft: string | null
   reply: string | null
   sent_at: string | null
+  /** It came in from the platform, so the reply goes back there too. */
+  from_platform?: boolean
+  posted_at?: string | null
   account: { id: number; platform: PlatformId; handle: string } | null
   created_at: string
 }

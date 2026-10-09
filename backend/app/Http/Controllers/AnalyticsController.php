@@ -15,8 +15,8 @@ use Illuminate\Validation\Rule;
 class AnalyticsController extends Controller
 {
     /**
-     * Output analytics: what was written, planned and published, where, and when.
-     * Engagement needs the networks' own APIs, which aren't connected, so it isn't here.
+     * Output analytics: what was written, planned and published, where, and when, plus the
+     * engagement read back from the platforms for what was published.
      */
     public function __invoke(Request $request): JsonResponse
     {
@@ -83,6 +83,47 @@ class AnalyticsController extends Controller
             'platforms' => $byPlatform,
             'formats' => $inRange->countBy(fn (Post $p) => $p->format->value),
             'heatmap' => array_values(array_map('array_values', $heatmap)),
+            'engagement' => $this->engagement($user, $start, $end),
         ]);
+    }
+
+    /**
+     * Likes, comments, shares, saves and views on what was published in the range, as last
+     * read from the platforms (API hourly, phones for X), with the best posts first.
+     *
+     * @return array<string, mixed>
+     */
+    private function engagement(User $user, CarbonImmutable $start, CarbonImmutable $end): array
+    {
+        $posts = $user->posts()->with(['metric', 'account:id,platform,handle'])->whereHas('metric')
+            ->whereBetween('published_at', [$start->utc(), $end->utc()])->get();
+        $fields = ['likes', 'comments', 'shares', 'saves', 'views', 'reach'];
+        $totals = collect($fields)->mapWithKeys(fn (string $f) => [$f => (int) $posts->sum(fn (Post $p) => (int) $p->metric->{$f})])->all();
+        $reactions = [];
+        foreach ($posts as $post) {
+            foreach ($post->metric->reactions ?? [] as $type => $n) {
+                $reactions[$type] = ($reactions[$type] ?? 0) + (int) $n;
+            }
+        }
+        arsort($reactions);
+        $score = fn (Post $p) => (int) $p->metric->likes + 2 * (int) $p->metric->comments + 3 * (int) $p->metric->shares + 2 * (int) $p->metric->saves;
+
+        return [
+            'posts' => $posts->count(),
+            'totals' => $totals,
+            'reactions' => $reactions,
+            'by_platform' => $posts->groupBy(fn (Post $p) => $p->account?->platform?->value ?? 'other')
+                ->map(fn (Collection $set) => ['posts' => $set->count(), 'likes' => (int) $set->sum(fn (Post $p) => (int) $p->metric->likes), 'comments' => (int) $set->sum(fn (Post $p) => (int) $p->metric->comments)]),
+            'top' => $posts->sortByDesc($score)->take(5)->values()->map(fn (Post $p) => [
+                'id' => $p->id,
+                'title' => str($p->title ?: $p->body)->limit(60)->toString(),
+                'platform' => $p->account?->platform?->value,
+                'handle' => $p->account?->handle,
+                'post_url' => $p->post_url,
+                'published_at' => $p->published_at?->toIso8601ZuluString(),
+                'metrics' => $p->metric->summary(),
+            ]),
+            'updated_at' => $posts->max(fn (Post $p) => $p->metric->fetched_at)?->toIso8601ZuluString(),
+        ];
     }
 }

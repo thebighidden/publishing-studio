@@ -11,8 +11,9 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
-#[Fillable(['title', 'body', 'format', 'placement', 'platforms', 'status', 'account_id', 'campaign_id', 'variant_id', 'scheduled_at', 'published_at', 'approved_at', 'approved_by', 'post_url', 'error'])]
+#[Fillable(['title', 'body', 'format', 'placement', 'platforms', 'status', 'account_id', 'campaign_id', 'variant_id', 'scheduled_at', 'published_at', 'approved_at', 'approved_by', 'post_url', 'error', 'external_id', 'published_via'])]
 class Post extends Model
 {
     /** @use HasFactory<PostFactory> */
@@ -93,6 +94,16 @@ class Post extends Model
     public function runs(): HasMany
     {
         return $this->hasMany(PublishingRun::class);
+    }
+
+    /**
+     * Its latest likes, comments, shares, views: from the platform's API or read off a phone.
+     *
+     * @return HasOne<PostMetric, $this>
+     */
+    public function metric(): HasOne
+    {
+        return $this->hasOne(PostMetric::class);
     }
 
     public function isApproved(): bool

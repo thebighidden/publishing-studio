@@ -20,9 +20,11 @@ use App\Http\Controllers\CampaignPlanController;
 use App\Http\Controllers\CampaignReviewController;
 use App\Http\Controllers\CampaignScheduleController;
 use App\Http\Controllers\CommentController;
+use App\Http\Controllers\ConnectionController;
 use App\Http\Controllers\DeviceController;
 use App\Http\Controllers\GenerationController;
 use App\Http\Controllers\InboxController;
+use App\Http\Controllers\InspirationController;
 use App\Http\Controllers\InvestigationController;
 use App\Http\Controllers\ModelController;
 use App\Http\Controllers\OverviewController;
@@ -62,10 +64,10 @@ Route::prefix('auth')->group(function () {
 });
 
 Route::middleware('auth:sanctum')->group(function () {
-    Route::get('inspirations/discover', [\App\Http\Controllers\InspirationController::class, 'discover'])->middleware('throttle:30,1');
-    Route::get('inspirations', [\App\Http\Controllers\InspirationController::class, 'index']);
-    Route::post('inspirations', [\App\Http\Controllers\InspirationController::class, 'store']);
-    Route::delete('inspirations/{id}', [\App\Http\Controllers\InspirationController::class, 'destroy']);
+    Route::get('inspirations/discover', [InspirationController::class, 'discover'])->middleware('throttle:30,1');
+    Route::get('inspirations', [InspirationController::class, 'index']);
+    Route::post('inspirations', [InspirationController::class, 'store']);
+    Route::delete('inspirations/{id}', [InspirationController::class, 'destroy']);
     Route::get('user', [ProfileController::class, 'show']);
     Route::patch('user', [ProfileController::class, 'update']);
     Route::delete('user', [ProfileController::class, 'destroy']);
@@ -91,6 +93,12 @@ Route::middleware('auth:sanctum')->group(function () {
 
     // Where posts go: accounts, and the phones that publish to them.
     Route::apiResource('accounts', AccountController::class);
+    // Accounts connected through the platforms' official APIs, and their engagement.
+    Route::get('connections', [ConnectionController::class, 'index']);
+    Route::patch('connections/{connection}', [ConnectionController::class, 'update']);
+    Route::delete('connections/{connection}', [ConnectionController::class, 'destroy']);
+    Route::post('posts/{post}/engagement', [ConnectionController::class, 'refreshPost'])->middleware('throttle:30,1');
+
     Route::get('devices/hidden', [DeviceController::class, 'hidden']);
     Route::delete('devices/hidden/{ref}', [DeviceController::class, 'unhide'])->where('ref', '[^/]+');
     Route::apiResource('devices', DeviceController::class)->except('show');

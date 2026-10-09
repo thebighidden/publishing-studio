@@ -30,6 +30,8 @@ class AccountResource extends JsonResource
             'automation' => $this->automation,
             'autonomy' => $this->autonomy,
             'min_gap_minutes' => $this->min_gap_minutes,
+            'publish_via' => $this->publish_via,
+            'connection' => $this->whenLoaded('apiConnection', fn () => $this->apiConnection?->summary()),
             'profile' => (object) ($this->profile ?? []),
             'posts_count' => $this->whenCounted('posts'),
             'created_at' => $this->created_at?->toIso8601ZuluString(),

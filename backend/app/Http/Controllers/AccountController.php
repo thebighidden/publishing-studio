@@ -21,7 +21,7 @@ class AccountController extends Controller
     public function index(Request $request): AnonymousResourceCollection
     {
         return AccountResource::collection(
-            $request->user()->accounts()->with('device')->withCount('posts')->orderBy('platform')->orderBy('handle')->get()
+            $request->user()->accounts()->with(['device', 'apiConnection'])->withCount('posts')->orderBy('platform')->orderBy('handle')->get()
         );
     }
 
@@ -30,14 +30,14 @@ class AccountController extends Controller
         $account = $request->user()->accounts()->create($this->validated($request));
         ActionLog::record($request->user(), 'you', 'account.created', $account, "Added {$account->label()}.");
 
-        return AccountResource::make($account->load('device'))->response()->setStatusCode(201);
+        return AccountResource::make($account->load(['device', 'apiConnection']))->response()->setStatusCode(201);
     }
 
     public function show(Account $account): AccountResource
     {
         Gate::authorize('view', $account);
 
-        return AccountResource::make($account->load('device')->loadCount('posts'));
+        return AccountResource::make($account->load(['device', 'apiConnection'])->loadCount('posts'));
     }
 
     public function update(Request $request, Account $account): AccountResource
@@ -56,7 +56,7 @@ class AccountController extends Controller
             });
         }
 
-        return AccountResource::make($account->load('device')->loadCount('posts'));
+        return AccountResource::make($account->load(['device', 'apiConnection'])->loadCount('posts'));
     }
 
     public function destroy(Account $account): Response
@@ -84,6 +84,7 @@ class AccountController extends Controller
             'timezone' => ['nullable', 'timezone:all'],
             'device_id' => ['nullable', Rule::exists('devices', 'id')->where('user_id', $user->id)],
             'automation' => ['sometimes', 'boolean'],
+            'publish_via' => ['sometimes', Rule::in(Account::PUBLISH_VIA)],
             'autonomy' => ['sometimes', Rule::in(Account::AUTONOMY)],
             'min_gap_minutes' => ['sometimes', 'integer', 'min:10', 'max:1440'],
             'profile' => ['sometimes', 'nullable', 'array'],

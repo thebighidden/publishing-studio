@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { PlatformId } from '../components/ui/PlatformIcon'
-import { api, ApiError, type Post } from '../lib/api'
+import { api, ApiError, type Post, type PostMetrics } from '../lib/api'
 
 /* ------------------------------------------------------------------ */
 /* Fetching                                                             */
@@ -94,6 +94,15 @@ export type Analytics = {
   formats: Partial<Record<'text' | 'image' | 'video', number>>
   /** [weekday 0 = Monday][hour 0–23] */
   heatmap: number[][]
+  /** What came back from the platforms for posts published in the range. */
+  engagement: {
+    posts: number
+    totals: Record<'likes' | 'comments' | 'shares' | 'saves' | 'views' | 'reach', number>
+    reactions: Record<string, number>
+    by_platform: Partial<Record<PlatformId, { posts: number; likes: number; comments: number }>>
+    top: Array<{ id: number; title: string; platform: PlatformId | null; handle: string | null; post_url: string | null; published_at: string | null; metrics: PostMetrics }>
+    updated_at: string | null
+  }
 }
 
 /* ------------------------------------------------------------------ */

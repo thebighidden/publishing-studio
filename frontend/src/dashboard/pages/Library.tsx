@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronDown, Copy, FolderOpen, MoreHorizontal, PenLine, Plus, Search, Trash2, Undo2, X } from 'lucide-react'
+import { Check, ChevronDown, Copy, ExternalLink, FolderOpen, MoreHorizontal, PenLine, Plus, RefreshCw, Search, Trash2, Undo2, X } from 'lucide-react'
 import { PLATFORMS, PlatformIcon, type PlatformId } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
 import { api, type Page, type Post, type PostStatus } from '../../lib/api'
@@ -21,6 +21,7 @@ import {
 } from '../data'
 import { useOverview } from '../Shell'
 import { useToast } from '../toast'
+import { MetricsInline } from '../analytics/Engagement'
 import { MediaLibrary } from '../media/Media'
 import { Inspiration } from '../media/Inspiration'
 import { Btn, EmptyState, Menu, Modal, PageHeader, Platforms, Segmented, Skeleton, StateBadge, Stagger, inputClass } from '../ui'
@@ -251,6 +252,11 @@ export default function Library() {
                           <span className="truncate text-[13.5px] text-fg transition-colors group-hover:text-white">{titleOf(p)}</span>
                         </span>
                         <span className="mt-0.5 block truncate pl-4 text-[12px] text-dim">{p.body}</span>
+                        {p.metrics && (
+                          <span className="mt-1 flex pl-4" title={p.metrics.fetched_at ? `Updated ${fmtRelative(p.metrics.fetched_at)}` : undefined}>
+                            <MetricsInline metrics={p.metrics} />
+                          </span>
+                        )}
                       </button>
                       <Platforms ids={p.platforms} className="hidden md:flex" />
                       <span className="hidden font-mono text-[11px] text-dim md:block">{FORMAT_LABEL[p.format]}</span>
@@ -268,6 +274,10 @@ export default function Library() {
                         items={[
                           { label: 'Edit', icon: PenLine, onSelect: () => navigate(`/dashboard/create?post=${p.id}`) },
                           { label: 'Duplicate', icon: Copy, onSelect: () => act(() => api(`/posts/${p.id}/duplicate`, { method: 'POST' }), 'Duplicated as a new draft.') },
+                          ...(p.post_url ? [{ label: 'Open the post', icon: ExternalLink, onSelect: () => window.open(p.post_url!, '_blank', 'noopener') }] : []),
+                          ...(p.external_id && p.published_via === 'api'
+                            ? [{ label: 'Refresh likes & comments', icon: RefreshCw, onSelect: () => act(() => api(`/posts/${p.id}/engagement`, { method: 'POST' }), 'Numbers updated.') }]
+                            : []),
                           ...(p.status === 'scheduled'
                             ? [{ label: 'Mark as published', icon: Check, onSelect: () => act(() => setPostStatus(p, 'published'), 'Marked as published.') }]
                             : []),

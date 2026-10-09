@@ -168,6 +168,16 @@ class User extends Authenticatable implements MustVerifyEmail
     }
 
     /**
+     * Accounts connected through the platforms' official APIs (Meta, X).
+     *
+     * @return HasMany<AccountConnection, $this>
+     */
+    public function connections(): HasMany
+    {
+        return $this->hasMany(AccountConnection::class);
+    }
+
+    /**
      * @return HasMany<Workflow, $this>
      */
     public function workflows(): HasMany

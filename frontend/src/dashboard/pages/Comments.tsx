@@ -128,6 +128,11 @@ function CommentRow({ comment: c, i }: { comment: Comment; i: number }) {
               <span className="text-[13px] font-medium">@{c.author}</span>
               <span className="text-[11px] text-dim">on @{c.account?.handle}{c.post_ref ? ` · “${c.post_ref}”` : ''}</span>
               <span className={cn('rounded-full border px-2 py-px text-[10.5px]', status.cls)}>{status.label}</span>
+              {c.from_platform && (
+                <span className="rounded-full border border-line-2 px-2 py-px text-[10.5px] text-dim" title="Came in through the platform’s API; the reply is posted back there">
+                  from the platform
+                </span>
+              )}
             </div>
             <p className="mt-1.5 whitespace-pre-wrap text-[12.5px] leading-snug text-muted">{c.body}</p>
             {c.triage && <p className="mt-1.5 text-[11.5px] text-dim">AI: {c.triage.decision} — {c.triage.reason}</p>}

@@ -1,6 +1,6 @@
 import { useMemo, useState, type ReactNode } from 'react'
 import { motion } from 'framer-motion'
-import { AudioLines, Bot, Hand, Plus, ShieldCheck, Smartphone, Trash2, UsersRound } from 'lucide-react'
+import { AudioLines, Bot, Hand, PlugZap, Plus, ShieldCheck, Smartphone, Trash2, UsersRound } from 'lucide-react'
 import { PLATFORMS, PlatformIcon, type PlatformId } from '../../components/ui/PlatformIcon'
 import { Serif } from '../../components/ui/Reveal'
 import { api, ApiError, type Account, type Device } from '../../lib/api'
@@ -9,6 +9,7 @@ import { cn } from '../../lib/cn'
 import { useRouter } from '../../lib/router'
 import { PLATFORM_ORDER, useApi, useInvalidate } from '../data'
 import { Autonomy } from '../accounts/Autonomy'
+import { Connections } from '../accounts/Connections'
 import { Voice } from '../accounts/Voice'
 import { useUser } from '../Shell'
 import { useToast } from '../toast'
@@ -40,6 +41,10 @@ export default function Accounts() {
       />
 
       <Stagger i={0} className="mt-10">
+        <Connections accounts={accounts ?? []} />
+      </Stagger>
+
+      <Stagger i={1} className="mt-6">
         {!accounts && loading ? (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {[0, 1, 2].map((i) => (
@@ -72,6 +77,9 @@ export default function Accounts() {
     </div>
   )
 }
+
+/** Whether this account's posts go out through its platform's API (else its phone). */
+const viaApi = (a: Account) => a.publish_via !== 'phone' && a.connection?.status === 'ok'
 
 function AccountCard({ account: a, i, onOpen, onVoice, onAutonomy }: { account: Account; i: number; onOpen: () => void; onVoice: () => void; onAutonomy: () => void }) {
   const { navigate } = useRouter()
@@ -116,8 +124,13 @@ function AccountCard({ account: a, i, onOpen, onVoice, onAutonomy }: { account: 
         </button>
       </div>
       <dl className="mt-auto grid grid-cols-3 border-t border-line text-[11.5px]">
-        <Fact label="Phone">
-          {a.device ? (
+        <Fact label="Publishes via">
+          {viaApi(a) ? (
+            <span className="flex min-w-0 items-center gap-1.5" title="The platform's official API">
+              <PlugZap className="size-3 shrink-0 text-ok" strokeWidth={2} />
+              <span className="truncate">API</span>
+            </span>
+          ) : a.device ? (
             <span className="flex min-w-0 items-center gap-1.5">
               <span className={cn('size-1.5 shrink-0 rounded-full', a.device.status === 'idle' ? 'bg-ok' : a.device.status === 'busy' ? 'bg-accent-soft' : 'bg-warn')} />
               <span className="truncate">{a.device.name}</span>
@@ -143,7 +156,13 @@ function AccountCard({ account: a, i, onOpen, onVoice, onAutonomy }: { account: 
           <span title={a.autonomy === 'rules' ? 'Approved rules run on their own' : 'Every action waits for approval'}>{a.autonomy === 'rules' ? 'Mode B' : 'Mode A'}</span>
         </Fact>
       </dl>
-      {!a.device && a.automation && (
+      {a.connection && a.connection.status !== 'ok' && (
+        <p className="flex items-center gap-2 border-t border-line px-4 py-2.5 text-[11.5px] text-fail">
+          <PlugZap className="size-3.5" strokeWidth={1.75} />
+          {a.connection.error ?? 'Its platform connection stopped working. Connect it again.'}
+        </p>
+      )}
+      {!a.device && a.automation && !viaApi(a) && (
         <button
           type="button"
           onClick={() => navigate('/dashboard/phones')}
@@ -188,13 +207,14 @@ function AccountFields({ account, devices, onDone }: { account: Account | null; 
   const [automation, setAutomation] = useState(account?.automation ?? false)
   const [autonomy, setAutonomy] = useState<Account['autonomy']>(account?.autonomy ?? 'approve_all')
   const [gap, setGap] = useState(account?.min_gap_minutes ?? 60)
+  const [via, setVia] = useState<Account['publish_via']>(account?.publish_via ?? 'auto')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState(false)
 
   const save = async () => {
     setSaving(true)
     setErrors({})
-    const body = { platform, handle, name: name || null, timezone: timezone || null, device_id: deviceId, automation, autonomy, min_gap_minutes: gap }
+    const body = { platform, handle, name: name || null, timezone: timezone || null, device_id: deviceId, automation, autonomy, min_gap_minutes: gap, publish_via: via }
     try {
       await api(account ? `/accounts/${account.id}` : '/accounts', { method: account ? 'PATCH' : 'POST', body })
       invalidate()
@@ -310,6 +330,27 @@ function AccountFields({ account, devices, onDone }: { account: Account | null; 
           </label>
         )}
         <FieldError message={errors.min_gap_minutes} />
+        {account?.connection && (
+          <div className="mt-3 border-t border-line pt-3">
+            <p className="text-[12px] text-muted">Publish through</p>
+            <Segmented
+              id="publish-via"
+              label="Publish through"
+              className="mt-2 w-fit"
+              value={via}
+              onChange={setVia}
+              options={[
+                { value: 'auto', label: 'API, else phone' },
+                { value: 'api', label: 'API only' },
+                { value: 'phone', label: 'Phone only' },
+              ]}
+            />
+            <p className="mt-1.5 text-[11.5px] text-dim">
+              Connected as {account.connection.username ? `@${account.connection.username}` : account.connection.name} through the official API: allowed by the
+              platform, with the post’s own link as proof.
+            </p>
+          </div>
+        )}
       </div>
 
       <div>
