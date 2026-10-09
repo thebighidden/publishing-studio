@@ -63,6 +63,8 @@ class AssetController extends Controller
     public function file(Asset $asset): BinaryFileResponse
     {
         Gate::authorize('view', $asset);
+        // A row whose file is gone (deleted by hand, or from an older copy) is "not found", not a crash.
+        abort_unless(Storage::disk('local')->exists($asset->path), 404);
 
         // A file response, so browsers can seek in videos (range requests).
         return response()->file(Storage::disk('local')->path($asset->path), [
@@ -74,7 +76,7 @@ class AssetController extends Controller
     public function poster(Asset $asset): BinaryFileResponse
     {
         Gate::authorize('view', $asset);
-        abort_unless($asset->poster_path, 404);
+        abort_unless($asset->poster_path && Storage::disk('local')->exists($asset->poster_path), 404);
 
         return response()->file(Storage::disk('local')->path($asset->poster_path), [
             'Content-Type' => 'image/jpeg',
