@@ -153,6 +153,7 @@ class GenerationRunner
         return match ($model['provider']) {
             'higgsfield' => app(HiggsfieldProvider::class),
             'gateway' => app(GatewayImageProvider::class),
+            'comfyui' => app(ComfyUiProvider::class),
             default => throw new GenerationFailed('That provider doesn’t make images or video.'),
         };
     }
@@ -161,6 +162,12 @@ class GenerationRunner
     {
         $words = str($generation->prompt)->lower()->replaceMatches('/[^\pL\pN]+/u', '-')->trim('-')->limit(40, '');
 
-        return "{$words}".($i ? '-'.($i + 1) : '').'.'.(str_starts_with($mime, 'video/') ? 'mp4' : 'png');
+        $ext = match ($mime) {
+            'image/jpeg' => 'jpg',
+            'image/webp' => 'webp',
+            default => str_starts_with($mime, 'video/') ? 'mp4' : 'png',
+        };
+
+        return "{$words}".($i ? '-'.($i + 1) : '').".{$ext}";
     }
 }

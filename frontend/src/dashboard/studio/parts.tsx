@@ -13,6 +13,23 @@ export const KIND_ICON = { text: Type, image: ImageIcon, video: Clapperboard }
 /** "Local · Ollama" or "Cloud · Claude API". */
 export const reachLabel = (m: Pick<ModelInfo, 'local' | 'reach'>) => `${m.local ? 'Local' : 'Cloud'} · ${m.reach}`
 
+/** Short tags for what an image or video model can take: "Reference", "Sound", "Up to 15 s"… */
+export function capTags(m: ModelInfo): string[] {
+  const c = m.caps
+  if (!c) return []
+  const tags: string[] = []
+  if (m.kind === 'image' && c.image_input) tags.push(c.max_images > 1 ? `Up to ${c.max_images} references` : 'Reference')
+  if (m.kind === 'video') {
+    if (c.requires_image) tags.push('From an image')
+    else if (c.image_input) tags.push('Text or image')
+    if (c.end_frame) tags.push('End frame')
+    if (c.audio) tags.push('Sound')
+    if (c.durations?.length) tags.push(`Up to ${Math.max(...c.durations)} s`)
+  }
+  if (c.resolutions?.length) tags.push(c.resolutions[c.resolutions.length - 1].toUpperCase())
+  return tags
+}
+
 /**
  * One list of local and cloud models. Each says how it's reached; the ones that can't run are
  * shown, greyed, with the reason.
@@ -49,8 +66,9 @@ export function ModelPicker({
     }
   }, [open])
 
+  // Media models group by family (Soul, Kling…); text models by how they're reached.
   const groups = Object.entries(
-    list.reduce<Record<string, ModelInfo[]>>((acc, m) => ((acc[reachLabel(m)] ??= []).push(m), acc), {}),
+    list.reduce<Record<string, ModelInfo[]>>((acc, m) => ((acc[m.family ? `${m.family} · ${m.reach}` : reachLabel(m)] ??= []).push(m), acc), {}),
   )
 
   return (
@@ -77,7 +95,7 @@ export function ModelPicker({
             transition={{ duration: 0.2, ease }}
             data-lenis-prevent
             className={cn(
-              'absolute top-full z-50 mt-1.5 max-h-[360px] w-[min(360px,90vw)] overflow-y-auto rounded-lg border border-line-2 bg-panel-3 p-1 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]',
+              'absolute top-full z-50 mt-1.5 max-h-[420px] w-[min(380px,90vw)] overflow-y-auto rounded-lg border border-line-2 bg-panel-3 p-1 shadow-[0_24px_60px_-20px_rgb(0_0_0_/_0.9)]',
               align === 'right' ? 'right-0' : 'left-0',
             )}
           >
@@ -105,6 +123,15 @@ export function ModelPicker({
                       <span className={cn('mt-0.5 block text-[11px] leading-snug', m.available ? 'text-dim' : 'text-warn/80')}>
                         {m.available ? (m.purpose ?? m.model) : m.reason}
                       </span>
+                      {m.available && capTags(m).length > 0 && (
+                        <span className="mt-1.5 flex flex-wrap gap-1">
+                          {capTags(m).map((t) => (
+                            <span key={t} className="rounded border border-line-2 px-1.5 py-px font-mono text-[9.5px] text-dim">
+                              {t}
+                            </span>
+                          ))}
+                        </span>
+                      )}
                     </span>
                     {m.id === value && <Check className="mt-0.5 size-3.5 shrink-0 text-accent-soft" strokeWidth={2} />}
                   </button>

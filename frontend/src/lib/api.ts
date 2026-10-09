@@ -113,9 +113,52 @@ export type Device = {
   booked_run_id: number | null
   paused: boolean
   last_seen_at: string | null
+  /** Simulators always; an HTTP phone while its agent keeps checking in. */
+  online: boolean
+  model: string | null
+  android: string | null
+  screen: [number, number] | null
+  /** HTTP phones: 'adb' for a real phone on the agent's computer, 'simulator' for its stand-in. */
+  agent_kind: 'adb' | 'emulator' | 'simulator' | null
+  /** The agent's live view and remote control, when it serves one. */
+  mirror_url: string | null
   screenshot_url: string | null
   accounts: Array<{ id: number; platform: PlatformId; handle: string }>
   created_at: string
+}
+
+/** GET /publishing/agent: the phone agent as it last checked in. */
+export type AgentStatus = {
+  online: boolean
+  /** Where it serves the device scan and the live view. */
+  url: string | null
+  host: string | null
+  os: string | null
+  version: string | null
+  adb: boolean
+  scrcpy: boolean
+  last_seen_at: string | null
+}
+
+/** The agent's GET /scan: every device its computer could drive, and what each needs. */
+export type ScanResult = {
+  adb: boolean
+  adb_path: string
+  hint: string | null
+  connected: Array<{
+    serial: string
+    name: string
+    connection: 'usb' | 'wifi' | 'emulator'
+    status: 'ready' | 'needs-allow' | 'offline'
+    hint: string
+    android: string | null
+    screen: [number, number] | null
+    /** The agent is already running jobs on it. */
+    working: boolean
+  }>
+  nearby: Array<{ name: string; address: string; action: 'connect' | 'pair'; hint: string }>
+  emulators: { available: boolean; avds: Array<{ name: string; running: boolean }>; hint: string }
+  simulated: string[]
 }
 
 /** POST /checks: one platform's pre-export check. */
@@ -260,12 +303,30 @@ export type Investigation = {
 }
 
 /** A model in the registry: local or cloud, and whether it can run right now. */
+/** What the studio's controls may offer for an image or video model (null lists: the usual choices). */
+export type ModelCaps = {
+  aspects: string[] | null
+  durations: number[] | null
+  resolutions: string[] | null
+  default_resolution: string | null
+  /** Takes input images: references for photos, a start frame for video. */
+  image_input: boolean
+  requires_image: boolean
+  max_images: number
+  end_frame: boolean
+  audio: boolean
+  seed: boolean
+}
+
 export type ModelInfo = {
   id: string
-  provider: 'anthropic' | 'gateway' | 'ollama' | 'higgsfield'
+  provider: 'anthropic' | 'gateway' | 'ollama' | 'higgsfield' | 'comfyui'
   model: string
   label: string
   kind: 'text' | 'image' | 'video'
+  /** Soul, Kling, Seedance… for grouping in the picker. */
+  family: string | null
+  caps: ModelCaps | null
   /** How it's reached: Claude API, Gateway, Ollama, Higgsfield API. */
   reach: string
   local: boolean
@@ -304,7 +365,7 @@ export type Generation = {
   model_label: string
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'
   prompt: string
-  params: Record<string, string | number>
+  params: Record<string, string | number | boolean>
   inputs: Asset[]
   outputs: Asset[]
   output_text: string | null

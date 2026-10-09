@@ -10,6 +10,7 @@ use App\Services\Publishing\Publisher;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Http\Resources\Json\AnonymousResourceCollection;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
@@ -97,6 +98,27 @@ class PublishingController extends Controller
         }
 
         return response()->json(['token' => $user->agent_token]);
+    }
+
+    /**
+     * The phone agent as it last described itself: online while it keeps checking in (every
+     * 30 s), where its device scan and live view are, and what its computer has (adb, scrcpy).
+     */
+    public function agent(Request $request): JsonResponse
+    {
+        $agent = $request->user()->agent ?? [];
+        $seen = isset($agent['seen_at']) ? Carbon::parse($agent['seen_at']) : null;
+
+        return response()->json([
+            'online' => $seen !== null && $seen->gt(now()->subSeconds(90)),
+            'url' => $agent['url'] ?? null,
+            'host' => $agent['host'] ?? null,
+            'os' => $agent['os'] ?? null,
+            'version' => $agent['version'] ?? null,
+            'adb' => (bool) ($agent['adb'] ?? false),
+            'scrcpy' => (bool) ($agent['scrcpy'] ?? false),
+            'last_seen_at' => $seen?->toIso8601ZuluString(),
+        ]);
     }
 
     public function rotateToken(Request $request): JsonResponse

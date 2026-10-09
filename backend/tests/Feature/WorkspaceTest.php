@@ -90,7 +90,7 @@ class WorkspaceTest extends TestCase
             ->assertJsonPath('next_free', '2026-10-01T09:30:00Z');
     }
 
-    public function test_profile_changes_and_a_new_email_needs_confirming(): void
+    public function test_profile_changes_and_a_new_email_needs_no_confirming(): void
     {
         Notification::fake();
         $user = User::factory()->create();
@@ -103,8 +103,9 @@ class WorkspaceTest extends TestCase
 
         $this->spa()->patchJson('/api/user', ['email' => 'new@studio.co'])
             ->assertOk()
-            ->assertJsonPath('email_verified', false);
-        Notification::assertSentTo($user->fresh(), VerifyEmail::class);
+            ->assertJsonPath('email', 'new@studio.co')
+            ->assertJsonPath('email_verified', true);
+        Notification::assertNotSentTo($user->fresh(), VerifyEmail::class);
 
         $this->spa()->patchJson('/api/user', ['timezone' => 'Mars/Olympus'])->assertJsonValidationErrors('timezone');
     }

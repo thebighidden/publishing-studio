@@ -2,17 +2,21 @@
 
 namespace Tests\Feature;
 
+use App\Jobs\PollGeneration;
+use App\Jobs\RunGeneration;
 use App\Models\Asset;
 use App\Models\ConnectorTest;
 use App\Models\Generation;
 use App\Models\ModelEval;
 use App\Models\User;
 use App\Services\Ai\GenerationFailed;
+use App\Services\Ai\Media\HiggsfieldProvider;
 use App\Services\Ai\TextGenerator;
 use Generator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
@@ -91,7 +95,7 @@ class StudioGenerationTest extends TestCase
         $list = $models();
         $this->assertTrue($list['anthropic/claude-opus-5-5']['available']);
         $this->assertSame('Claude API', $list['anthropic/claude-opus-5-5']['reach']);
-        $this->assertSame('No API route for this model yet.', $list['higgsfield/soul']['reason']);
+        $this->assertSame('No API route for this model yet.', $list['higgsfield/seedance-2-5']['reason']);
         $this->assertSame('The Higgsfield connector hasn’t been tested.', $list['higgsfield/ideogram-4']['reason']);
 
         // Testing the connector: bad credentials are refused, good ones get "not found".
@@ -213,8 +217,196 @@ class StudioGenerationTest extends TestCase
         $this->assertStringContainsString('flagged the result as unsafe', Generation::find($retry)->error);
 
         // Switching to a model that can't run is refused up front.
-        $this->spa()->postJson("/api/generations/{$id}/retry", ['model' => 'higgsfield/kling'])->assertCreated();
-        $this->assertSame('Kling isn’t available: No API route for this model yet.', Generation::latest('id')->first()->error);
+        $this->spa()->postJson("/api/generations/{$id}/retry", ['model' => 'higgsfield/seedance-2-5'])->assertCreated();
+        $this->assertSame('Seedance 2.5 isn’t available: No API route for this model yet.', Generation::latest('id')->first()->error);
+    }
+
+    public function test_each_higgsfield_model_gets_only_the_fields_its_schema_takes(): void
+    {
+        $provider = app(HiggsfieldProvider::class);
+        $spec = fn (string $id) => config("ai.providers.higgsfield.models.{$id}");
+
+        // Soul 2 has no 4:5, so the nearest ratio goes; resolution and batch size are filled in;
+        // a big studio seed is folded into Higgsfield's 1..1,000,000.
+        [$route, $body] = $provider->request($spec('soul-2'), 'p', ['aspect_ratio' => '4:5', 'seed' => 3_000_000_123], 0);
+        $this->assertSame('/higgsfield-ai/soul/v2/standard', $route);
+        $this->assertSame(['prompt' => 'p', 'aspect_ratio' => '3:4', 'seed' => 124, 'resolution' => '1080p', 'batch_size' => 1], $body);
+
+        // Kling: sound is "on"/"off", lengths snap to what it offers.
+        [$route, $body] = $provider->request($spec('kling-3-pro'), 'p', ['aspect_ratio' => '9:16', 'duration' => 7, 'audio' => false], 0);
+        $this->assertSame(['/kling-video/v3.0/pro/text-to-video', ['prompt' => 'p', 'aspect_ratio' => '9:16', 'duration' => 8, 'sound' => 'off']], [$route, $body]);
+        // With a start frame it switches to image-to-video, which takes its shape from the frame.
+        [$route, $body] = $provider->request($spec('kling-3-pro'), 'p', ['aspect_ratio' => '9:16', 'duration' => 15], 1);
+        $this->assertSame(['/kling-video/v3.0/pro/image-to-video', ['prompt' => 'p', 'duration' => 15, 'sound' => 'on']], [$route, $body]);
+
+        // Seedance: generate_audio is a bool, 4K is allowed; a resolution it doesn't offer falls back to its default.
+        [, $body] = $provider->request($spec('seedance-2'), 'p', ['duration' => 10, 'resolution' => '4k', 'audio' => true], 0);
+        $this->assertSame(['prompt' => 'p', 'duration' => 10, 'resolution' => '4k', 'generate_audio' => true], $body);
+        [, $body] = $provider->request($spec('seedance-2'), 'p', ['resolution' => '2k'], 0);
+        $this->assertSame('1080p', $body['resolution']);
+
+        // Hailuo takes no aspect and only 6 or 10 seconds.
+        [, $body] = $provider->request($spec('hailuo-2-3'), 'p', ['aspect_ratio' => '16:9', 'duration' => 7], 0);
+        $this->assertSame(['prompt' => 'p', 'duration' => 6, 'prompt_optimizer' => true], $body);
+    }
+
+    public function test_the_registry_tells_the_studio_what_each_model_can_take(): void
+    {
+        $this->fakeClaude();
+        $this->higgsfieldTested();
+        config(['ai.providers.higgsfield.plan' => []]); // empty: every model with a route
+
+        $list = collect($this->actingAs(User::factory()->create())->spa()->getJson('/api/models')->json('models'))->keyBy('id');
+
+        $this->assertTrue($list['higgsfield/kling-3-pro']['available']);
+        $this->assertEquals(['durations' => [5, 8, 10, 15], 'audio' => true, 'end_frame' => true, 'image_input' => true, 'requires_image' => false],
+            collect($list['higgsfield/kling-3-pro']['caps'])->only(['durations', 'audio', 'end_frame', 'image_input', 'requires_image'])->all());
+        $this->assertSame(['1k', '2k'], $list['higgsfield/grok-image-2']['caps']['resolutions']);
+        $this->assertSame(10, $list['higgsfield/grok-image-2']['caps']['max_images']);
+        $this->assertFalse($list['higgsfield/soul-2']['caps']['image_input']);
+        $this->assertSame('Kling', $list['higgsfield/kling-3-pro']['family']);
+        $this->assertNull($list['anthropic/claude-opus-5-5']['caps']);
+    }
+
+    public function test_a_video_runs_from_a_start_frame_to_an_end_frame(): void
+    {
+        $this->fakeClaude();
+        $this->higgsfieldTested();
+        config(['ai.providers.higgsfield.plan' => []]);
+        $user = User::factory()->create();
+        Storage::disk('local')->put('assets/x/a.png', base64_decode(self::PNG));
+        Storage::disk('local')->put('assets/x/b.png', base64_decode(self::PNG));
+        $start = Asset::factory()->for($user)->create(['path' => 'assets/x/a.png', 'mime' => 'image/png']);
+        $end = Asset::factory()->for($user)->create(['path' => 'assets/x/b.png', 'mime' => 'image/png']);
+        Http::fake([
+            'api.higgsfield.ai/files/generate-upload-url' => Http::sequence()
+                ->push(['public_url' => 'https://files.example/a.png', 'upload_url' => 'https://upload.example/a'])
+                ->push(['public_url' => 'https://files.example/b.png', 'upload_url' => 'https://upload.example/b']),
+            'upload.example/*' => Http::response('', 200),
+            'api.higgsfield.ai/kling-video/v3.0/pro/image-to-video' => Http::response(['request_id' => 'k-1', 'status_url' => 'https://api.higgsfield.ai/requests/k-1/status']),
+            'api.higgsfield.ai/requests/k-1/status' => Http::sequence()
+                ->push(['status' => 'in_progress'])
+                ->push(['status' => 'completed', 'video' => ['url' => 'https://cdn.example/k.mp4']]),
+            'cdn.example/k.mp4' => Http::response('not really a video', 200),
+        ]);
+
+        $this->actingAs($user)->spa()->postJson('/api/generations', [
+            'kind' => 'video', 'model' => 'higgsfield/kling-3-pro', 'prompt' => 'The jar turns to face the window',
+            'input_asset_ids' => [$start->id, $end->id], 'params' => ['duration' => 10, 'audio' => true, 'aspect_ratio' => '9:16'],
+        ])->assertCreated();
+
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/kling-video/v3.0/pro/image-to-video')
+            && $r['image_url'] === 'https://files.example/a.png' && $r['last_image_url'] === 'https://files.example/b.png'
+            && $r['duration'] === 10 && $r['sound'] === 'on' && ! isset($r['aspect_ratio']));
+    }
+
+    public function test_grok_edits_from_a_list_of_reference_images(): void
+    {
+        $this->fakeClaude();
+        $this->higgsfieldTested();
+        config(['ai.providers.higgsfield.plan' => []]);
+        $user = User::factory()->create();
+        Storage::disk('local')->put('assets/x/a.png', base64_decode(self::PNG));
+        $ref = Asset::factory()->for($user)->create(['path' => 'assets/x/a.png', 'mime' => 'image/png']);
+        Http::fake([
+            'api.higgsfield.ai/files/generate-upload-url' => Http::response(['public_url' => 'https://files.example/a.png', 'upload_url' => 'https://upload.example/a']),
+            'upload.example/*' => Http::response('', 200),
+            'api.higgsfield.ai/xai/grok-imagine-image-2.0' => Http::response(['request_id' => 'g-1', 'status_url' => 'https://api.higgsfield.ai/requests/g-1/status']),
+            'api.higgsfield.ai/requests/g-1/status' => Http::response(['status' => 'completed', 'images' => [['url' => 'https://cdn.example/g.jpg']]]),
+            'cdn.example/g.jpg' => Http::response(base64_decode(self::PNG)),
+        ]);
+
+        $id = $this->actingAs($user)->spa()->postJson('/api/generations', [
+            'kind' => 'image', 'model' => 'higgsfield/grok-image-2', 'prompt' => 'Put the jar on a marble counter',
+            'input_asset_ids' => [$ref->id], 'params' => ['aspect_ratio' => '1:1'],
+        ])->assertCreated()->json('id');
+
+        $this->assertSame('succeeded', Generation::find($id)->status);
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), 'grok-imagine-image-2.0')
+            && $r['image_urls'] === ['https://files.example/a.png'] && $r['quality'] === 'medium' && $r['resolution'] === '2k');
+    }
+
+    public function test_the_gallery_lists_finished_media_by_search_and_shape_a_page_at_a_time(): void
+    {
+        $user = User::factory()->create();
+        $make = fn (array $a) => $user->generations()->create($a + ['model' => 'higgsfield/soul-2', 'status' => 'succeeded']);
+        $reel = $make(['kind' => 'video', 'prompt' => 'Candle reveal for a reel', 'params' => ['aspect_ratio' => '9:16', 'duration' => 8, 'style' => 'ugc', 'base_prompt' => 'Candle reveal']]);
+        $still = $make(['kind' => 'image', 'prompt' => 'Candle on linen', 'params' => ['aspect_ratio' => '4:5']]);
+        $make(['kind' => 'text', 'prompt' => 'Candle captions']);
+        $make(['kind' => 'image', 'prompt' => 'Candle that failed', 'status' => 'failed', 'params' => ['aspect_ratio' => '9:16']]);
+        $other = User::factory()->create()->generations()->create(['kind' => 'image', 'model' => 'x', 'prompt' => 'Candle elsewhere', 'status' => 'succeeded']);
+
+        $ids = fn (array $query) => collect($this->actingAs($user)->spa()->getJson('/api/generations?'.http_build_query($query))->assertOk()->json())->pluck('id')->all();
+
+        $this->assertSame([$still->id, $reel->id], $ids(['media' => 1, 'status' => 'succeeded']));
+        $this->assertSame([$reel->id], $ids(['media' => 1, 'status' => 'succeeded', 'aspect' => '9:16']));
+        $this->assertSame([$still->id], $ids(['media' => 1, 'status' => 'succeeded', 'q' => 'linen']));
+        $this->assertSame([$still->id], $ids(['media' => 1, 'status' => 'succeeded', 'limit' => 1]));
+        $this->assertSame([$reel->id], $ids(['media' => 1, 'status' => 'succeeded', 'before_id' => $still->id]));
+        $this->assertNotContains($other->id, $ids(['media' => 1]));
+        // What a remake needs comes back as it was saved: the style and the prompt before it.
+        $this->spa()->getJson("/api/generations/{$reel->id}")->assertJsonPath('params.style', 'ugc')->assertJsonPath('params.base_prompt', 'Candle reveal');
+    }
+
+    public function test_a_job_that_dies_never_leaves_a_generation_waiting_forever(): void
+    {
+        Queue::fake();
+        $user = User::factory()->create();
+        $make = fn (array $a) => $user->generations()->create($a + ['kind' => 'image', 'model' => 'higgsfield/soul-2', 'prompt' => 'cat']);
+        $locked = new \PDOException('SQLSTATE[HY000]: General error: 5 database is locked');
+
+        // Never reached the provider: failed, with a way forward.
+        $queued = $make(['status' => 'queued']);
+        (new RunGeneration($queued->id))->failed($locked);
+        $this->assertSame('failed', $queued->fresh()->status);
+        $this->assertStringContainsString('try again', $queued->fresh()->error);
+
+        // Already with the provider: keep polling rather than lose what's being made.
+        $sent = $make(['status' => 'running', 'external_id' => 'hf-1', 'started_at' => now()]);
+        (new RunGeneration($sent->id))->failed($locked);
+        $this->assertSame('running', $sent->fresh()->status);
+        Queue::assertPushed(PollGeneration::class, fn (PollGeneration $job) => $job->generationId === $sent->id);
+
+        // A poll that dies asks again, up to a point.
+        (new PollGeneration($sent->id, 3))->failed($locked);
+        Queue::assertPushed(PollGeneration::class, fn (PollGeneration $job) => $job->generationId === $sent->id && $job->attempt === 4);
+        (new PollGeneration($sent->id, 60))->failed($locked);
+        $this->assertSame('failed', $sent->fresh()->status);
+
+        // Finished ones are left alone.
+        $done = $make(['status' => 'succeeded']);
+        (new RunGeneration($done->id))->failed($locked);
+        $this->assertSame('succeeded', $done->fresh()->status);
+    }
+
+    public function test_comfyui_runs_a_workflow_on_your_own_gpu(): void
+    {
+        $this->fakeClaude();
+        config(['ai.providers.comfyui.url' => 'http://comfy.test:8188']);
+        Http::fake([
+            'comfy.test:8188/system_stats' => Http::response(['system' => ['comfyui_version' => '0.3.60'], 'devices' => [['name' => 'cuda:0 RTX 4090']]]),
+            'comfy.test:8188/object_info/UNETLoader' => Http::response(['UNETLoader' => ['input' => ['required' => ['unet_name' => [['z_image_turbo_bf16.safetensors']]]]]]),
+            'comfy.test:8188/prompt' => Http::response(['prompt_id' => 'c-1']),
+            'comfy.test:8188/history/c-1' => Http::sequence()
+                ->push([])
+                ->push(['c-1' => ['status' => ['status_str' => 'success'], 'outputs' => ['9' => ['images' => [['filename' => 'flowai_00001_.png', 'subfolder' => 'flowai', 'type' => 'output']]]]]]),
+            'comfy.test:8188/view*' => Http::response(base64_decode(self::PNG)),
+        ]);
+        $user = User::factory()->create();
+
+        $this->actingAs($user)->spa()->postJson('/api/models/test/comfyui')->assertJsonPath('ok', true)
+            ->assertJsonPath('message', 'Connected. ComfyUI 0.3.60 on cuda:0 RTX 4090.');
+        $id = $this->spa()->postJson('/api/generations', [
+            'kind' => 'image', 'model' => 'comfyui/z-image-turbo', 'prompt' => 'Amber jar on linen', 'params' => ['aspect_ratio' => '4:5', 'seed' => 42],
+        ])->assertCreated()->json('id');
+
+        $generation = Generation::find($id);
+        $this->assertSame(['succeeded', 'c-1'], [$generation->status, $generation->external_id]);
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/prompt')
+            && $r['prompt']['57:27']['inputs']['text'] === 'Amber jar on linen'
+            && $r['prompt']['57:3']['inputs']['seed'] === 42
+            && [$r['prompt']['57:13']['inputs']['width'], $r['prompt']['57:13']['inputs']['height']] === [1024, 1280]);
+        Http::assertSent(fn (Request $r) => str_contains($r->url(), '/view?filename=flowai_00001_.png&subfolder=flowai&type=output'));
     }
 
     public function test_the_text_to_video_recipe_runs_its_steps_on_its_own(): void

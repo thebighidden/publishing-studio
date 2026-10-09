@@ -32,14 +32,26 @@ class GenerationController extends Controller
             'kind' => ['nullable', Rule::in(Generation::KINDS)],
             'project_id' => ['nullable', 'integer'],
             'ids' => ['nullable', 'string'],
+            // The Gallery: finished photos and videos, searchable, by shape, a page at a time.
+            'media' => ['nullable', 'boolean'],
+            'status' => ['nullable', Rule::in(['queued', 'running', 'succeeded', 'failed', 'canceled'])],
+            'q' => ['nullable', 'string', 'max:100'],
+            'aspect' => ['nullable', 'string', 'max:8'],
+            'before_id' => ['nullable', 'integer'],
+            'limit' => ['nullable', 'integer', 'min:1', 'max:100'],
         ]);
 
         return GenerationResource::collection($request->user()->generations()
             ->when($filters['kind'] ?? null, fn ($q, $kind) => $q->where('kind', $kind))
+            ->when($filters['media'] ?? false, fn ($q) => $q->whereIn('kind', ['image', 'video']))
+            ->when($filters['status'] ?? null, fn ($q, $status) => $q->where('status', $status))
+            ->when($filters['q'] ?? null, fn ($q, $text) => $q->where('prompt', 'like', '%'.$text.'%'))
+            ->when($filters['aspect'] ?? null, fn ($q, $aspect) => $q->where('params->aspect_ratio', $aspect))
+            ->when($filters['before_id'] ?? null, fn ($q, $id) => $q->where('id', '<', $id))
             ->when($filters['project_id'] ?? null, fn ($q, $id) => $q->where('project_id', $id))
             ->when($filters['ids'] ?? null, fn ($q, $ids) => $q->whereIn('id', array_map('intval', explode(',', $ids))))
             ->latest('id')
-            ->limit(60)
+            ->limit($filters['limit'] ?? 60)
             ->get());
     }
 
@@ -152,7 +164,10 @@ class GenerationController extends Controller
             'params' => ['nullable', 'array'],
             'params.aspect_ratio' => ['nullable', 'string', 'max:8'],
             'params.duration' => ['nullable', 'integer', 'min:2', 'max:15'],
-            'params.resolution' => ['nullable', Rule::in(['720p', '1080p'])],
+            // Each model accepts a subset of these (its caps); the provider sends only what it takes.
+            'params.resolution' => ['nullable', Rule::in(['480p', '720p', '1080p', '4k', '1k', '2k'])],
+            'params.audio' => ['nullable', 'boolean'],
+            'params.seed' => ['nullable', 'integer', 'min:0', 'max:4294967295'],
             'params.rendering_speed' => ['nullable', Rule::in(['TURBO', 'DEFAULT', 'QUALITY'])],
             'params.negative_prompt' => ['nullable', 'string', 'max:500'],
             'input_asset_ids' => ['nullable', 'array', 'max:4'],

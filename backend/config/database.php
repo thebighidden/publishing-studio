@@ -41,7 +41,11 @@ return [
             'busy_timeout' => null,
             'journal_mode' => null,
             'synchronous' => null,
-            'transaction_mode' => 'DEFERRED',
+            // The API, worker, scheduler and phone agent all write to this one file. A deferred
+            // transaction that has read and then needs to write can't wait for the lock: SQLite
+            // answers "database is locked" at once. IMMEDIATE takes the write lock up front, so a
+            // busy database means a short wait (the busy timeout), not a failed job.
+            'transaction_mode' => env('DB_TRANSACTION_MODE', 'IMMEDIATE'),
         ],
 
         'mysql' => [

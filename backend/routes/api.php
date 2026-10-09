@@ -96,6 +96,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('publishing/pause', [PublishingController::class, 'pause']);
     Route::post('publishing/resume', [PublishingController::class, 'resume']);
     Route::get('publishing/agent-token', [PublishingController::class, 'token']);
+    Route::get('publishing/agent', [PublishingController::class, 'agent']);
     Route::post('publishing/agent-token/rotate', [PublishingController::class, 'rotateToken']);
     Route::post('posts/{post}/retry', [PublishingController::class, 'retry']);
     Route::post('posts/{post}/confirm-live', [PublishingController::class, 'confirm']);
@@ -201,6 +202,8 @@ Route::middleware('auth:sanctum')->group(function () {
 // The agent API: how the automation service (the Python dev) works its phones. Bearer token,
 // never a session. The loop: next job → steps and screenshots as it goes → finish.
 Route::prefix('agent')->middleware('agent')->group(function () {
+    Route::post('hello', [AgentController::class, 'hello']);
+    Route::post('devices/{ref}/screen', [AgentController::class, 'screen'])->where('ref', '[^/]+');
     Route::get('next-job', [AgentController::class, 'nextJob']);
     Route::post('runs/{run:uuid}/steps', [AgentController::class, 'steps']);
     Route::post('runs/{run:uuid}/screenshot', [AgentController::class, 'screenshot']);
