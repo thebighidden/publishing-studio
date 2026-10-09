@@ -47,6 +47,34 @@ class AgentApiTest extends TestCase
         return $this->withHeaders(['Authorization' => 'Bearer '.self::TOKEN, 'Accept' => 'application/json']);
     }
 
+    public function test_the_phone_reads_x_numbers_for_its_recent_posts(): void
+    {
+        $x = Account::factory()->for($this->user)->create(['platform' => 'x', 'handle' => 'maisoncire', 'device_id' => $this->phone->id]);
+        $fresh = Post::factory()->for($this->user)->for($x)->published()->create(['body' => 'Candles for slow evenings', 'post_url' => 'https://x.com/maisoncire/status/1', 'published_at' => now()->subHour()]);
+        $old = Post::factory()->for($this->user)->for($x)->published()->create(['published_at' => now()->subDays(20)]);
+        $justRead = Post::factory()->for($this->user)->for($x)->published()->create(['published_at' => now()->subHours(2)]);
+        $justRead->metric()->create(['likes' => 3, 'source' => 'phone', 'fetched_at' => now()->subMinutes(5)]);
+        // Instagram numbers come from its API, not the phone.
+        Post::factory()->for($this->user)->for($this->account)->published()->create(['published_at' => now()->subHour()]);
+
+        $jobs = $this->agent()->getJson('/api/agent/metrics-jobs?device_ref=phone-1')->assertOk()->json('posts');
+        $this->assertSame([$fresh->id], array_column($jobs, 'id'));
+        $this->assertSame(['https://x.com/maisoncire/status/1', 'Candles for slow evenings', 'maisoncire'], [$jobs[0]['post_url'], $jobs[0]['caption'], $jobs[0]['handle']]);
+
+        $this->agent()->postJson('/api/agent/metrics', ['post_id' => $fresh->id, 'likes' => 12, 'comments' => 2, 'shares' => 1, 'views' => 340])
+            ->assertOk()->assertJsonPath('source', 'phone')->assertJsonPath('views', 340);
+        $this->assertSame([], $this->agent()->getJson('/api/agent/metrics-jobs?device_ref=phone-1')->json('posts'));
+
+        // A failed read keeps the last numbers and says why.
+        $this->agent()->postJson('/api/agent/metrics', ['post_id' => $fresh->id, 'error' => 'post not found on the profile'])->assertOk()
+            ->assertJsonPath('likes', 12)->assertJsonPath('error', 'post not found on the profile');
+
+        // Only the studio's own posts.
+        $stranger = Post::factory()->published()->create();
+        $this->agent()->postJson('/api/agent/metrics', ['post_id' => $stranger->id, 'likes' => 1])->assertNotFound();
+        $this->assertNull($old->metric()->first());
+    }
+
     public function test_a_phone_deleted_while_connected_stays_deleted_until_brought_back(): void
     {
         $hello = fn () => $this->agent()->postJson('/api/agent/hello', ['phones' => [['ref' => 'phone-1', 'name' => 'Pixel 8', 'kind' => 'adb']]]);

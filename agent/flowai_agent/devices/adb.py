@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import posixpath
 import re
+import shlex
 import shutil
 import struct
 import subprocess
@@ -348,6 +349,13 @@ class AdbDriver(DeviceDriver):
 
     def app_stop(self, package: str) -> None:
         self._shell("am", "force-stop", package)
+
+    def open_url(self, url: str, package: str = "") -> None:
+        # adb joins the arguments into one remote shell line, so the link is quoted for it.
+        args = ["am", "start", "-W", "-a", "android.intent.action.VIEW", "-d", shlex.quote(url)]
+        if package:
+            args += ["-p", package]
+        self._shell(*args, timeout=30)
 
     def current_package(self) -> str:
         return self._current_activity()[0]

@@ -2,7 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\Platform;
+use App\Enums\PostStatus;
 use App\Models\Asset;
+use App\Models\Post;
+use App\Models\PostMetric;
 use App\Models\PublishingRun;
 use App\Services\Publishing\Publisher;
 use Illuminate\Http\JsonResponse;
@@ -153,6 +157,64 @@ class AgentController extends Controller
         abort_unless($asset->user()->is($request->user()), 404);
 
         return response()->file(Storage::disk('local')->path($asset->path), ['Content-Type' => $asset->mime]);
+    }
+
+    /**
+     * X posts on accounts this phone works whose numbers are due a fresh read. X's API charges
+     * for reading, so the phone opens each post and reads its likes, replies, reposts and views.
+     */
+    public function metricsJobs(Request $request): JsonResponse
+    {
+        $device = $request->user()->devices()->where('driver', 'http')->where('ref', $request->query('device_ref'))->first();
+        abort_unless($device, 404, 'No HTTP phone of yours has that device ID.');
+        if ($device->isPaused() || $request->user()->publishingPaused()) {
+            return response()->json(['posts' => []]); // a paused phone is left alone entirely
+        }
+        $stale = now()->subMinutes((int) config('publishing.phone_metrics_minutes'));
+
+        $posts = $request->user()->posts()->with('account:id,handle')
+            ->where('status', PostStatus::Published)
+            ->where('published_at', '>=', now()->subDays(14))
+            ->whereHas('account', fn ($q) => $q->where('platform', Platform::X->value)->where('device_id', $device->id))
+            ->where(fn ($q) => $q->whereDoesntHave('metric')->orWhereHas('metric', fn ($m) => $m->where('fetched_at', '<', $stale)->orWhereNull('fetched_at')))
+            ->latest('published_at')->limit(5)->get();
+
+        return response()->json(['posts' => $posts->map(fn (Post $p) => [
+            'id' => $p->id,
+            'platform' => 'x',
+            'handle' => $p->account?->handle,
+            'post_url' => $p->post_url,
+            'caption' => $p->body,
+            'published_at' => $p->published_at?->toIso8601ZuluString(),
+        ])->values()]);
+    }
+
+    /** What the phone read off a post. An error is kept too, so the post waits for the next round. */
+    public function metrics(Request $request): JsonResponse
+    {
+        $data = $request->validate([
+            'post_id' => ['required', 'integer'],
+            'likes' => ['nullable', 'integer', 'min:0'],
+            'comments' => ['nullable', 'integer', 'min:0'],
+            'shares' => ['nullable', 'integer', 'min:0'],
+            'saves' => ['nullable', 'integer', 'min:0'],
+            'views' => ['nullable', 'integer', 'min:0'],
+            'error' => ['nullable', 'string', 'max:250'],
+        ]);
+        $post = $request->user()->posts()->find($data['post_id']);
+        abort_unless($post, 404, 'No post of yours has that ID.');
+
+        if ($data['error'] ?? null) {
+            // Keep the last good numbers; just say why this read failed.
+            $metric = PostMetric::updateOrCreate(['post_id' => $post->id], ['error' => $data['error'], 'fetched_at' => now(), 'source' => 'phone']);
+        } else {
+            $metric = PostMetric::updateOrCreate(['post_id' => $post->id], [
+                ...collect($data)->only(['likes', 'comments', 'shares', 'saves', 'views'])->all(),
+                'source' => 'phone', 'error' => null, 'fetched_at' => now(),
+            ]);
+        }
+
+        return response()->json($metric->summary());
     }
 
     private function ownRun(Request $request, PublishingRun $run): void

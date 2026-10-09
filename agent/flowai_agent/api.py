@@ -63,6 +63,16 @@ class FlowAI:
             body["post_url"] = post_url
         self._check(self.client.post(f"/runs/{run_id}/finish", json=body))
 
+    def metrics_jobs(self, device_ref: str) -> list[dict[str, Any]]:
+        """X posts on this phone's accounts whose likes, replies and views are due a read."""
+        return self._check(self.client.get("/metrics-jobs", params={"device_ref": device_ref})).json().get("posts", [])
+
+    def metrics(self, post_id: int, numbers: Optional[dict[str, int]] = None, error: Optional[str] = None) -> None:
+        body: dict[str, Any] = {"post_id": post_id, **(numbers or {})}
+        if error:
+            body["error"] = error[:250]
+        self._check(self.client.post("/metrics", json=body))
+
     def screen(self, device_ref: str, png: bytes) -> None:
         """The phone's latest screen while idle, for the Phones page thumbnail."""
         self._check(self.client.post(f"/devices/{device_ref}/screen", files={"file": ("screen.png", png, "image/png")}))

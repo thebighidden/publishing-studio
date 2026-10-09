@@ -231,4 +231,7 @@ Route::prefix('agent')->middleware('agent')->group(function () {
     Route::post('runs/{run:uuid}/screenshot', [AgentController::class, 'screenshot']);
     Route::post('runs/{run:uuid}/finish', [AgentController::class, 'finish']);
     Route::get('assets/{asset}/file', [AgentController::class, 'assetFile']);
+    // X numbers are read on the phone (X's API charges for reading).
+    Route::get('metrics-jobs', [AgentController::class, 'metricsJobs']);
+    Route::post('metrics', [AgentController::class, 'metrics']);
 });

@@ -149,6 +149,59 @@ DEFAULT_CATALOG: dict[str, list[dict[str, Any]]] = {
         {"id": "row", "nth": 0},
         {"cls": "android.view.ViewGroup", "clickable": True, "nth": 0},
     ],
+    # ---------------- Facebook (com.facebook.katana) ----------------
+    # Not yet calibrated on a real phone: recalibrate from the Phones page if a step can't
+    # find its control. Posts go out as whoever the app is signed in as (a profile, or a Page
+    # the app is switched to); Pages connected through the API don't need the phone at all.
+    "facebook.home_tab": [
+        {"desc": "Home", "exact": False},
+        {"id": "home_tab"},
+    ],
+    "facebook.composer_entry": [
+        {"text": "What's on your mind", "exact": False},
+        {"desc": "What's on your mind", "exact": False},
+        {"text": "Write something", "exact": False},
+        {"desc": "Write something", "exact": False},
+    ],
+    "facebook.compose_field": [
+        {"cls": "android.widget.EditText", "nth": 0},
+        {"text": "What's on your mind", "exact": False},
+    ],
+    "facebook.add_media": [
+        {"text": "Photo/video", "exact": False},
+        {"desc": "Photo/video", "exact": False},
+        {"desc": "Photos", "exact": False},
+        {"text": "Photo", "exact": True},
+    ],
+    "facebook.gallery_first_item": [
+        {"desc": "Photo taken", "exact": False, "nth": 0},
+        {"desc": "Video taken", "exact": False, "nth": 0},
+        {"desc": "Photo", "exact": False, "nth": 0},
+        {"cls": "android.widget.ImageView", "clickable": True, "nth": 1},
+    ],
+    "facebook.media_done": [
+        {"text": "Done", "exact": True},
+        {"desc": "Done", "exact": True},
+        {"text": "Next", "exact": True},
+        {"desc": "Next", "exact": True},
+    ],
+    # Some versions ask for the audience on a second screen after "Next".
+    "facebook.next": [
+        {"text": "Next", "exact": True},
+        {"desc": "Next", "exact": True},
+    ],
+    "facebook.post_button": [
+        {"text": "POST", "exact": True},
+        {"text": "Post", "exact": True},
+        {"desc": "Post", "exact": True},
+        {"text": "Share now", "exact": True},
+        {"text": "Publish", "exact": True},
+    ],
+    "facebook.profile_tab": [
+        {"desc": "Your profile", "exact": False},
+        {"desc": "Go to profile", "exact": False},
+        {"desc": "Profile", "exact": False},
+    ],
     # ---------------- generic / system ----------------
     "system.allow_permission": [
         {"id": "permission_allow_button"},

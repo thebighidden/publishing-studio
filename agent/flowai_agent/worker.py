@@ -20,15 +20,16 @@ from .api import ApiError, FlowAI
 from .devices.base import DeviceDriver, DeviceError
 from .publishing.context import BudgetExceeded, RunContext, StepRecord
 from .publishing.recipes.base import Evidence, PostPayload, PublishFailed, Recipe
+from .publishing.recipes.facebook import FacebookRecipe
 from .publishing.recipes.instagram import InstagramRecipe
 from .publishing.recipes.x import XRecipe
 
 log = logging.getLogger("flowai.agent")
 
-RECIPES: dict[str, type[Recipe]] = {"instagram": InstagramRecipe, "x": XRecipe}
+RECIPES: dict[str, type[Recipe]] = {"instagram": InstagramRecipe, "facebook": FacebookRecipe, "x": XRecipe}
 # Taps that submit the post. Once one succeeded, a run that breaks afterwards can't know
 # whether the post went out, so it ends uncertain rather than failed (and isn't re-posted blind).
-SUBMIT_TARGETS = ("instagram.share", "x.post_button", "x.post")
+SUBMIT_TARGETS = ("instagram.share", "facebook.post_button", "x.post_button", "x.post")
 # What FlowAI accepts per step (AgentController::steps).
 ACTION_MAX, NOTE_MAX = 60, 200
 
@@ -114,7 +115,7 @@ def run_job(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lo
     reporter = StepReporter(api, run_id)
     recipe_cls = RECIPES.get(platform)
     if recipe_cls is None:
-        api.finish(run_id, "failed", f"The phone agent has no recipe for {platform} yet (it posts to Instagram and X).")
+        api.finish(run_id, "failed", f"The phone agent has no recipe for {platform} yet (it posts to Instagram, Facebook and X).")
         return "failed"
 
     media = job.get("media") or []
@@ -208,6 +209,7 @@ class PhoneWorker(threading.Thread):
         self.stop = threading.Event()
         self.busy = False
         self._last_screen = 0.0
+        self._last_metrics = 0.0
 
     def run(self) -> None:
         while not self.stop.is_set():
@@ -221,11 +223,45 @@ class PhoneWorker(threading.Thread):
                         self.busy = False
                     continue
                 self._idle_screen()
+                self._read_metrics()
             except ApiError as exc:
                 log.warning("%s: %s", self.ref, exc)
             except Exception:  # noqa: BLE001
                 log.error("%s: worker error\n%s", self.ref, traceback.format_exc())
             self.stop.wait(config.POLL_SECONDS)
+
+    def _read_metrics(self) -> None:
+        """Between jobs: read likes, replies, reposts and views on this phone's recent X posts.
+        FlowAI says which posts are due; a publishing job always comes first."""
+        every = float(config.METRICS_SECONDS)
+        # Simulated phones show no counts; the hackathon phone has no screen tree to read.
+        if every <= 0 or self.ref.startswith(("sim-", "hack-")) or time.monotonic() - self._last_metrics < every:
+            return
+        self._last_metrics = time.monotonic()
+        posts = self.api.metrics_jobs(self.ref)
+        if not posts:
+            return
+        from .publishing.x_metrics import X_PACKAGE, ReadFailed, read_post
+
+        with self.lock:
+            driver = driver_for(self.ref)
+            try:
+                for post in posts:
+                    if self.stop.is_set():
+                        break
+                    try:
+                        numbers = read_post(driver, post)
+                        self.api.metrics(post["id"], numbers)
+                        log.info("%s: X post %s reads %s", self.ref, post["id"], numbers)
+                    except (ReadFailed, DeviceError) as exc:
+                        self.api.metrics(post["id"], error=str(exc))
+                        log.info("%s: X post %s not read: %s", self.ref, post["id"], exc)
+            finally:
+                try:
+                    driver.app_stop(X_PACKAGE)
+                except Exception:  # noqa: BLE001
+                    pass
+                driver.close()
 
     def _idle_screen(self) -> None:
         """Keep the Phones page thumbnail fresh while nothing is running."""

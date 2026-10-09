@@ -37,6 +37,8 @@ POLL_SECONDS = float(os.environ.get("FLOWAI_POLL_SECONDS", "5"))
 HELLO_SECONDS = float(os.environ.get("FLOWAI_HELLO_SECONDS", "30"))
 # How often an idle phone's screen is sent for the Phones page thumbnail (0: never).
 IDLE_SCREEN_SECONDS = float(os.environ.get("FLOWAI_IDLE_SCREEN_SECONDS", "60"))
+# How often an idle phone asks which X posts need their likes, replies and views read (0: never).
+METRICS_SECONDS = float(os.environ.get("FLOWAI_METRICS_SECONDS", "1800"))
 # Simulated phones to run alongside real ones, e.g. "sim-1" (for trying the loop without hardware).
 SIMULATED_PHONES = [p.strip() for p in os.environ.get("FLOWAI_SIMULATED_PHONES", "").split(",") if p.strip()]
 

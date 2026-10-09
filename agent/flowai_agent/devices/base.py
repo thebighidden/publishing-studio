@@ -185,6 +185,10 @@ class DeviceDriver(ABC):
             time.sleep(interval)
         return None
 
+    def open_url(self, url: str, package: str = "") -> None:
+        """Open a link in an app, such as a post's own page. Drivers that can't say so."""
+        raise DeviceError(f"{self.kind} phones can't open links directly")
+
     def focused_input(self) -> Optional[dict]:
         """Focus as the keyboard sees it: {"package", "hint"} of the field it is
         serving in the app in front, or None. For apps that leave their text

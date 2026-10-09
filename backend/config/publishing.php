@@ -28,6 +28,9 @@ return [
     // is released and the run ends honestly (uncertain if it reached "publish").
     'stale_minutes' => 10,
 
+    // X likes, replies and views are read on a phone, at most this often per post.
+    'phone_metrics_minutes' => (int) env('PHONE_METRICS_MINUTES', 60),
+
     // The app the phone opens per platform, and the named targets in it. The
     // provided apps are calibrated server-side; these names are the contract.
     'apps' => [
