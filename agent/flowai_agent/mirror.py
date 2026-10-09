@@ -143,6 +143,10 @@ class _Handler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(data)
             elif action == "stream.mjpeg":
+                if ref.startswith("hack-"):
+                    from .devices import hack
+
+                    hack.relay.ready()  # a phone service that's down answers 502 with why
                 self._stream(ref)
             else:
                 self._json(404, {"message": "unknown view"})

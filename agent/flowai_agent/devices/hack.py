@@ -56,21 +56,27 @@ def _call(fn, *args, **kwargs):
 
 
 def discover() -> Optional[dict]:
-    """The team's phone, as the agent registers it with FlowAI, or None when it's offline."""
+    """The team's phone, as the agent registers it with FlowAI.
+
+    Registered whenever the team key works, even while the phone service is down: then it's
+    still listed on the Phones page, and its live view says the service isn't answering,
+    instead of the phone vanishing. None only when there's no key or the API can't be reached.
+    """
     if not configured():
         return None
     try:
         with HackPhone() as phone:
-            status = _call(phone.status)
+            me = _call(phone.me)
+            try:
+                geometry = _call(phone.geometry)
+            except DeviceError:
+                geometry = {}
     except DeviceError as exc:
         log.warning("hackathon phone: %s", exc)
         return None
-    if not status.get("online"):
-        return None
-    screen = status.get("screen") or {}
-    device_id = status.get("device_id") or "phone"
+    device_id = me.get("device_id") or "phone"
     return {"ref": f"{PREFIX}{device_id}", "name": device_id, "model": "Hackathon phone", "android": None,
-            "width": screen.get("w"), "height": screen.get("h"), "kind": "remote"}
+            "width": geometry.get("w"), "height": geometry.get("h"), "kind": "remote"}
 
 
 class HackDriver(DeviceDriver):
@@ -183,6 +189,16 @@ class LiveRelay:
         finally:
             with self.cond:
                 self.viewers -= 1
+
+    def ready(self) -> None:
+        """Before a stream starts: raises DeviceError when the phone can't show anything, so the
+        dashboard gets the reason at once rather than a stream that never draws."""
+        if self.frame is not None and time.monotonic() - self.at <= self.QUIET_SECONDS * 3:
+            return
+        with HackPhone() as phone:
+            jpeg = _call(phone.screenshot, "jpeg", 900)
+        with self.cond:
+            self.frame, self.at = jpeg, time.monotonic()
 
     def _snapshot(self) -> Optional[bytes]:
         """A screenshot when the feed is quiet; shared, so several viewers still cost one."""

@@ -105,9 +105,15 @@ function Screen({ device, base, phoneRef }: { device: Device; base: string; phon
           <div className="absolute inset-0 grid place-items-center p-6 text-center">
             <div>
               <Unplug className="mx-auto size-6 text-dim" strokeWidth={1.5} />
-              <p className="mt-3 text-[13px]">Can’t reach the live view</p>
+              <p className="mt-3 text-[13px]">{device.agent_kind === 'remote' ? 'The phone isn’t answering' : 'Can’t reach the live view'}</p>
               <p className="mt-1 text-[11.5px] leading-snug text-dim">
-                It’s served by the FlowAI agent at <span className="font-mono">{base}</span>. Is the agent running on the computer this phone is plugged into?
+                {device.agent_kind === 'remote' ? (
+                  <>The hackathon’s phone service isn’t answering right now. Close this and open it again in a minute; nothing on FlowAI’s side needs changing.</>
+                ) : (
+                  <>
+                    It’s served by the FlowAI agent at <span className="font-mono">{base}</span>. Is the agent running on the computer this phone is plugged into?
+                  </>
+                )}
               </p>
             </div>
           </div>
