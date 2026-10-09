@@ -4,6 +4,7 @@ import { api, type Device } from '../../lib/api'
 import { cn } from '../../lib/cn'
 import { useToast } from '../toast'
 import { Btn, inputClass, Label, Modal } from '../ui'
+import { AgentPanel } from './AgentPanel'
 
 /**
  * The phone's screen, live, from the agent on the computer it's plugged into — and a hand on it:
@@ -11,9 +12,20 @@ import { Btn, inputClass, Label, Modal } from '../ui'
  * publishing run is driving the phone, so a person can watch a run but not disturb it.
  */
 export function LiveView({ device, open, onClose }: { device: Device; open: boolean; onClose: () => void }) {
+  // The hackathon phone also has its own agent: give it goals beside the live screen.
+  const remote = device.agent_kind === 'remote'
   return (
-    <Modal open={open} onClose={onClose} title={device.name} className="max-w-[440px]">
-      {open && device.mirror_url && device.ref && <Screen device={device} base={device.mirror_url} phoneRef={device.ref} />}
+    <Modal open={open} onClose={onClose} title={device.name} className={remote ? 'max-w-[1040px]' : 'max-w-[440px]'}>
+      {open && device.mirror_url && device.ref && (
+        <div className={cn(remote && 'grid gap-5 md:grid-cols-[380px_minmax(0,1fr)]')}>
+          <Screen device={device} base={device.mirror_url} phoneRef={device.ref} />
+          {remote && (
+            <div className="max-h-[75vh] min-w-0 overflow-y-auto pr-1" data-lenis-prevent>
+              <AgentPanel base={device.mirror_url} phoneRef={device.ref} />
+            </div>
+          )}
+        </div>
+      )}
     </Modal>
   )
 }

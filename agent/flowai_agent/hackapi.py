@@ -150,6 +150,37 @@ class HackPhone:
     def test_target(self, name: str) -> dict[str, Any]:
         return self._data(self.client.post(f"/phone/targets/{name}/test"))
 
+    # ---------------- the hackathon's phone agent ----------------
+
+    def create_task(
+        self,
+        goal: str,
+        mode: str = "flash",
+        max_steps: Optional[int] = None,
+        output_format: str = "text",
+        output_schema: Optional[dict[str, Any]] = None,
+    ) -> dict[str, Any]:
+        body = {"goal": goal, "mode": mode, "max_steps": max_steps, "output_format": output_format, "output_schema": output_schema}
+        return self._data(self.client.post("/tasks", json=body))
+
+    def task(self, task_id: str) -> dict[str, Any]:
+        return self._data(self.client.get(f"/tasks/{task_id}"))
+
+    def events(self, task_id: str, after_seq: int = 0) -> list[dict[str, Any]]:
+        return self._data(self.client.get(f"/tasks/{task_id}/events", params={"after_seq": after_seq}))
+
+    def cancel_task(self, task_id: str) -> Any:
+        return self._data(self.client.post(f"/tasks/{task_id}/cancel"))
+
+    def approvals(self, status: Optional[str] = None) -> list[dict[str, Any]]:
+        return self._data(self.client.get("/approvals", params={"status": status} if status else None))
+
+    def task_screenshot(self, task_id: str, n: int) -> bytes:
+        r = self.client.get(f"/tasks/{task_id}/screenshots/{n}")
+        if r.status_code >= 400:
+            self._data(r)
+        return r.content
+
     # ---------------- team ----------------
 
     def me(self) -> dict[str, Any]:

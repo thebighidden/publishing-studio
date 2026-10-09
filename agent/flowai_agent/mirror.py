@@ -11,12 +11,14 @@ from __future__ import annotations
 import io
 import json
 import logging
+import re
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Callable, Optional
 from urllib.parse import parse_qs, urlparse
 
+import httpx
 from PIL import Image
 
 from . import config
@@ -25,6 +27,12 @@ from .devices import remote
 from .devices.base import DeviceError
 
 log = logging.getLogger("flowai.mirror")
+
+# What the dashboard may ask of the hackathon's phone agent, through _hack.
+_ID = r"[A-Za-z0-9_-]{1,80}"
+HACK_GET = [r"tasks", rf"tasks/{_ID}", rf"tasks/{_ID}/events", rf"tasks/{_ID}/screenshots/\d+", rf"tasks/{_ID}/run-record",
+            r"approvals", r"recipes", rf"recipes/{_ID}", r"usage"]
+HACK_POST = [r"tasks", rf"tasks/{_ID}/cancel", rf"tasks/{_ID}/messages", rf"tasks/{_ID}/recipe", rf"approvals/{_ID}", rf"recipes/{_ID}/run"]
 
 KEYS = {
     "back": "KEYCODE_BACK", "home": "KEYCODE_HOME", "recents": "KEYCODE_APP_SWITCH", "power": "KEYCODE_POWER",
@@ -113,6 +121,40 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(404, {"message": f"No phone {ref} on this computer."})
         return False
 
+    def _hack(self, method: str) -> bool:
+        """/phones/hack-…/hack/<path>: the hackathon's own phone agent (tasks, approvals, recipes),
+        passed through with the team key, which stays on this computer. Only these paths."""
+        parsed = urlparse(self.path)
+        parts = [p for p in parsed.path.split("/") if p]
+        if len(parts) < 4 or parts[0] != "phones" or parts[2] != "hack":
+            return False
+        if not self._authorized() or not self._known(parts[1]):
+            return True
+        rest = "/".join(parts[3:])
+        allowed = HACK_GET if method == "GET" else HACK_POST
+        if not parts[1].startswith("hack-") or not any(re.fullmatch(p, rest) for p in allowed):
+            self._json(404, {"message": "Not something the phone agent offers."})
+            return True
+        body = None
+        if method == "POST":
+            body = self.rfile.read(int(self.headers.get("Content-Length") or 0)) or b"{}"
+        # The agent token authenticates the dashboard here; it never goes on to the hackathon server.
+        params = {k: v for k, v in parse_qs(parsed.query).items() if k in ("after_seq", "limit", "offset", "status")} if method == "GET" else None
+        try:
+            r = httpx.request(method, f"{config.HACK_API_BASE}/{rest}", params=params,
+                              content=body, headers={"Authorization": f"Bearer {config.HACK_TEAM_KEY}", "Content-Type": "application/json"},
+                              verify=False, timeout=30.0)
+        except httpx.HTTPError as exc:
+            self._json(502, {"message": f"Can’t reach the hackathon phone API: {exc}"})
+            return True
+        self.send_response(r.status_code)
+        self._cors()
+        self.send_header("Content-Type", r.headers.get("content-type", "application/json"))
+        self.send_header("Content-Length", str(len(r.content)))
+        self.end_headers()
+        self.wfile.write(r.content)
+        return True
+
     def do_OPTIONS(self) -> None:  # CORS preflight from the dashboard
         self.send_response(204)
         self._cors()
@@ -121,6 +163,8 @@ class _Handler(BaseHTTPRequestHandler):
     # ---------------- view ----------------
 
     def do_GET(self) -> None:
+        if self._hack("GET"):
+            return
         ref, action = self._route()
         if action == "health":
             self._json(200, {"ok": True, "phones": self.ctx.phones()})
@@ -196,6 +240,8 @@ class _Handler(BaseHTTPRequestHandler):
         self._json(200, {"ok": True, "message": message})
 
     def do_POST(self) -> None:
+        if self._hack("POST"):
+            return
         ref, action = self._route()
         if not self._authorized():
             return

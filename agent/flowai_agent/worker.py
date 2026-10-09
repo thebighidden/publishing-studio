@@ -105,6 +105,12 @@ def run_job(api: FlowAI, ref: str, job: dict[str, Any], phone_lock: threading.Lo
     platform = account.get("platform", "")
     log.info("run %s on %s: %s (%s)", run_id, ref, job.get("goal"), platform)
 
+    if ref.startswith("hack-"):
+        # No UI tree on the hackathon phone: its own agent does the posting, from a goal.
+        from .publishing import hack_agent
+
+        return hack_agent.run(api, ref, job, phone_lock)
+
     reporter = StepReporter(api, run_id)
     recipe_cls = RECIPES.get(platform)
     if recipe_cls is None:
