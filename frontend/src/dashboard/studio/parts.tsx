@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, ChevronDown, Clapperboard, Copy, Cpu, Image as ImageIcon, LoaderCircle, PenLine, Repeat, RotateCcw, Shuffle, Type } from 'lucide-react'
+import { AudioLines, Check, ChevronDown, Clapperboard, Copy, Cpu, Image as ImageIcon, LoaderCircle, PenLine, Repeat, RotateCcw, Shuffle, Type } from 'lucide-react'
 import { api, type Generation, type ModelInfo } from '../../lib/api'
 import { ease } from '../../lib/motion'
 import { cn } from '../../lib/cn'
@@ -8,7 +8,7 @@ import { useApi } from '../data'
 import { MediaThumb } from '../media/Media'
 import { Btn, inputClass } from '../ui'
 
-export const KIND_ICON = { text: Type, image: ImageIcon, video: Clapperboard }
+export const KIND_ICON = { text: Type, image: ImageIcon, video: Clapperboard, audio: AudioLines }
 
 /** "Local · Ollama" or "Cloud · Claude API". */
 export const reachLabel = (m: Pick<ModelInfo, 'local' | 'reach'>) => `${m.local ? 'Local' : 'Cloud'} · ${m.reach}`
@@ -218,13 +218,15 @@ export function GenerationCard({
       <p className={cn('px-3.5 pt-1.5 text-[12.5px] leading-snug text-dim', compact && 'line-clamp-2')}>{g.prompt}</p>
 
       <div className="p-3.5 pt-3">
-        {working && g.kind !== 'text' && <div className="skeleton aspect-[4/3] w-full rounded-lg" />}
+        {working && g.kind !== 'text' && <div className={cn('skeleton w-full rounded-lg', g.kind === 'audio' ? 'h-12' : 'aspect-[4/3]')} />}
         {g.kind === 'text' && g.output_text && <p className="whitespace-pre-wrap text-[13.5px] leading-relaxed text-fg">{g.output_text}</p>}
         {g.outputs.length > 0 && (
           <div className={cn('grid gap-2', g.outputs.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
             {g.outputs.map((a) =>
               a.kind === 'video' ? (
                 <video key={a.id} src={a.url} poster={a.poster_url ?? undefined} controls playsInline className="max-h-[440px] w-full rounded-lg bg-black object-contain" />
+              ) : a.kind === 'audio' ? (
+                <audio key={a.id} src={a.url} controls preload="metadata" className="col-span-full w-full" />
               ) : (
                 <img key={a.id} src={a.url} alt={g.prompt} draggable={false} className="max-h-[440px] w-full rounded-lg bg-white/[0.03] object-contain" />
               ),

@@ -33,7 +33,18 @@ export async function runText(body: { prompt: string; model?: string | null; pro
   return id
 }
 
-export const runMedia = (body: { kind: 'image' | 'video'; model?: string | null; prompt: string; params?: Record<string, unknown>; input_asset_ids?: number[]; project_id?: number | null }) =>
+export const runMedia = (body: {
+  kind: 'image' | 'video' | 'audio'
+  model?: string | null
+  prompt: string
+  params?: Record<string, unknown>
+  input_asset_ids?: number[]
+  project_id?: number | null
+  board_id?: number | null
+  /** Edits: the painted area (PNG data URL, opaque where it changes), and the padded image when extending. */
+  mask?: string
+  image?: string
+}) =>
   api<Generation>('/generations', { method: 'POST', body })
 
 /** Retry a generation: as it was, on another model, or with an edited prompt. */

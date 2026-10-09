@@ -13,6 +13,7 @@ use App\Http\Controllers\Auth\RegisteredUserController;
 use App\Http\Controllers\Auth\SocialiteController;
 use App\Http\Controllers\Auth\VerifyEmailController;
 use App\Http\Controllers\AutonomyController;
+use App\Http\Controllers\BoardController;
 use App\Http\Controllers\CampaignController;
 use App\Http\Controllers\CampaignPhotoController;
 use App\Http\Controllers\CampaignPlanController;
@@ -35,6 +36,7 @@ use App\Http\Controllers\RecipeController;
 use App\Http\Controllers\RepostController;
 use App\Http\Controllers\SocialAccountController;
 use App\Http\Controllers\SpecController;
+use App\Http\Controllers\WorkflowController;
 use App\Http\Controllers\WritingController;
 use Illuminate\Support\Facades\Route;
 
@@ -84,6 +86,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('assets/{asset}/file', [AssetController::class, 'file']);
     Route::get('assets/{asset}/poster', [AssetController::class, 'poster']);
     Route::delete('assets/{asset}', [AssetController::class, 'destroy']);
+    Route::post('assets/board', [BoardController::class, 'move']);
+    Route::apiResource('boards', BoardController::class)->except('show');
 
     // Where posts go: accounts, and the phones that publish to them.
     Route::apiResource('accounts', AccountController::class);
@@ -121,8 +125,12 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('generations/text', [GenerationController::class, 'text']);
         Route::post('generations/{generation}/retry', [GenerationController::class, 'retry']);
         Route::post('recipes/{recipe}', [RecipeController::class, 'run']);
+        Route::post('workflows/run', [WorkflowController::class, 'run']);
+        Route::post('workflow-runs/{run}/resume', [WorkflowController::class, 'resume']);
     });
     Route::apiResource('projects', ProjectController::class);
+    Route::get('workflow-runs', [WorkflowController::class, 'runs']);
+    Route::apiResource('workflows', WorkflowController::class)->except('show');
 
     Route::get('queue-slots', [QueueSlotController::class, 'index']);
     Route::put('queue-slots', [QueueSlotController::class, 'update']);

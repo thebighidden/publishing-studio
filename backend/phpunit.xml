@@ -27,9 +27,14 @@
         <env name="AI_GATEWAY_URL" value=""/>
         <env name="AI_GATEWAY_KEY" value=""/>
         <env name="AI_GATEWAY_REACH" value="Gateway"/>
+        <env name="AI_GATEWAY_REASONING_EFFORT" value=""/>
+        <env name="AI_GATEWAY_PLAIN_MODELS" value=""/>
         <env name="AI_GATEWAY_IMAGE_MODELS" value=""/>
         <env name="AI_GATEWAY_LOCAL_MODELS" value=""/>
         <env name="OLLAMA_URL" value=""/>
+        <env name="INVOKE_URL" value=""/>
+        <env name="OMNIVOICE_URL" value=""/>
+        <env name="OMNIVOICE_API_KEY" value=""/>
         <env name="APP_MAINTENANCE_DRIVER" value="file"/>
         <env name="BCRYPT_ROUNDS" value="4"/>
         <env name="BROADCAST_CONNECTION" value="null"/>

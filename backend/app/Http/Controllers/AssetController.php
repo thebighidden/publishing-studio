@@ -20,15 +20,18 @@ class AssetController extends Controller
     public function index(Request $request): JsonResponse
     {
         $filters = $request->validate([
-            'kind' => ['nullable', Rule::in(['image', 'video'])],
+            'kind' => ['nullable', Rule::in(['image', 'video', 'audio'])],
             'source' => ['nullable', Rule::in(['upload', 'generated', 'screenshot', 'intake'])],
             'q' => ['nullable', 'string', 'max:100'],
             'ids' => ['nullable', 'string', 'max:2000'],
+            // A board's id, or "none" for files on no board.
+            'board' => ['nullable', 'string', 'max:20'],
         ]);
 
         $assets = $request->user()->assets()
             ->when($filters['kind'] ?? null, fn ($q, $kind) => $q->where('kind', $kind))
-            ->when($filters['source'] ?? null, fn ($q, $source) => $q->where('source', $source), fn ($q) => isset($filters['ids']) ? $q : $q->where('source', '!=', 'screenshot'))
+            ->when($filters['source'] ?? null, fn ($q, $source) => $q->where('source', $source), fn ($q) => isset($filters['ids']) ? $q : $q->whereNotIn('source', ['screenshot', 'mask']))
+            ->when($filters['board'] ?? null, fn ($q, $board) => $board === 'none' ? $q->whereNull('board_id') : $q->where('board_id', (int) $board))
             ->when($filters['q'] ?? null, fn ($q, $text) => $q->where('name', 'like', "%{$text}%"))
             ->when($filters['ids'] ?? null, fn ($q, $ids) => $q->whereIn('id', array_map('intval', explode(',', $ids))))
             ->latest()
@@ -45,12 +48,14 @@ class AssetController extends Controller
         $request->validate([
             'files' => ['required', 'array', 'min:1', 'max:20'],
             'files.*' => ['file', 'mimetypes:'.implode(',', [...AssetStore::IMAGE_TYPES, ...AssetStore::VIDEO_TYPES]), 'max:204800'],
+            'board_id' => ['nullable', Rule::exists('boards', 'id')->where('user_id', $request->user()->id)],
         ], [
             'files.*.mimetypes' => 'Use JPG, PNG, WebP or GIF images, or MP4, MOV or WebM videos.',
             'files.*.max' => 'Each file can be up to 200 MB.',
         ]);
 
-        $assets = collect($request->file('files'))->map(fn ($file) => $store->fromUpload($request->user(), $file));
+        $assets = collect($request->file('files'))->map(fn ($file) => tap($store->fromUpload($request->user(), $file))
+            ->update(['board_id' => $request->integer('board_id') ?: null]));
 
         return response()->json($assets->map->summary(), 201);
     }

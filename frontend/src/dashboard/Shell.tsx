@@ -108,7 +108,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="lg:pl-[236px]">
           <TopBar onMenu={() => setDrawer(true)} onSearch={() => setPalette(true)} />
           {!user.email_verified && <VerifyBanner email={user.email} />}
-          <main className="mx-auto w-full max-w-[1320px] px-4 pb-24 pt-8 md:px-8 md:pt-10">{children}</main>
+          {/* The Creative Lab is a workbench: it takes the whole width. */}
+          <main className={cn('mx-auto w-full', path.startsWith('/dashboard/studio') ? 'px-3 pb-3 pt-3 md:px-4' : 'max-w-[1320px] px-4 pb-24 pt-8 md:px-8 md:pt-10')}>{children}</main>
         </div>
 
         <CommandPalette open={palette} onClose={() => setPalette(false)} />

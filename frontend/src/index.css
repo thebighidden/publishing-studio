@@ -267,3 +267,10 @@ html[data-palette='mono'] {
 [data-thread='scribble'][data-on] {
   opacity: 0.3;
 }
+
+/* Transparent areas in the Creative Lab's edit canvas. */
+.checkerboard {
+  background-color: #1a1a1e;
+  background-image: conic-gradient(#25252b 25%, transparent 0 50%, #25252b 0 75%, transparent 0);
+  background-size: 18px 18px;
+}

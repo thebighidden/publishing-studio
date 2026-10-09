@@ -57,6 +57,7 @@ export default function Models() {
                     { value: 'text', label: 'Text' },
                     { value: 'image', label: 'Image' },
                     { value: 'video', label: 'Video' },
+                    { value: 'audio', label: 'Audio' },
                   ]}
                 />
               }

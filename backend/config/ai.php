@@ -11,6 +11,7 @@ return [
     | provider says how its models are reached; the model picker shows it.
     | Text models: Claude, any OpenAI-compatible gateway, Ollama on this
     | network. Images and video: Higgsfield, and gateway image models.
+    | Speech: VoiceStudio (OmniVoice) on your own GPU.
     |
     | A model is offered only when it can actually run: credentials set, and
     | for Higgsfield also an API route, a place in your plan, and a connector
@@ -43,11 +44,21 @@ return [
         // with a literal `</think>` tag still in it. On the default, `content` holds the answer
         // alone and the reasoning stays in `message.reasoning`, which this app never reads. So
         // the default is both cleaner and the only mode that cannot leak thinking into a caption.
+        //
+        // To run GLM without thinking, set AI_GATEWAY_REASONING_EFFORT=low. Measured on Ollama
+        // Cloud (glm-5.3-flash, 10 calls, captions and JSON): 0-19 characters of reasoning instead
+        // of hundreds, clean content every time, valid JSON 5/5, about 1.5-2s a call. It applies
+        // to every call on this gateway, overriding callers that ask for "medium".
         'gateway' => [
             // Whose gateway it is, for the model picker. Generic unless you say otherwise.
             'reach' => env('AI_GATEWAY_REACH', 'Gateway'),
             'url' => env('AI_GATEWAY_URL'),
             'key' => env('AI_GATEWAY_KEY'),
+            // low, medium or high for every call; empty leaves each caller's choice.
+            'reasoning_effort' => env('AI_GATEWAY_REASONING_EFFORT'),
+            // Model-name prefixes that answer directly (e.g. gemma4): never sent reasoning_effort,
+            // since any value switches their thinking on.
+            'plain_models' => array_values(array_filter(array_map('trim', explode(',', (string) env('AI_GATEWAY_PLAIN_MODELS', ''))))),
             'image_models' => array_values(array_filter(explode(',', (string) env('AI_GATEWAY_IMAGE_MODELS', '')))),
             // Models the gateway serves from local hardware rather than a vendor.
             'local_models' => array_values(array_filter(explode(',', (string) env('AI_GATEWAY_LOCAL_MODELS', '')))),
@@ -125,6 +136,36 @@ return [
                 'veo-3.1-generate-preview' => ['label' => 'Veo 3.1', 'kind' => 'video', 'price' => null,
                     'capabilities' => ['aspect_ratios' => ['9:16', '16:9'], 'durations' => [4, 6, 8], 'resolutions' => ['720p', '1080p', '4k'], 'default_resolution' => '720p', 'max_inputs' => 2, 'input_optional' => true, 'end_frame' => true, 'audio' => true, 'audio_always_on' => true, 'seed' => true],
                     'purpose' => 'Highest-quality Google video with native audio'],
+            ],
+        ],
+
+        // Images from an InvokeAI server on your own GPU. Its installed models are read from
+        // GET /api/v2/models; FlowAI builds Invoke's node graphs itself, so only model families
+        // it has a graph for can run (z-image so far). Edits (inpaint, extend) go through the
+        // same graphs Invoke's own canvas uses.
+        'invoke' => [
+            'reach' => env('INVOKE_REACH', 'InvokeAI'),
+            'local' => true,
+            'url' => env('INVOKE_URL'),
+            'queue' => env('INVOKE_QUEUE', 'default'),
+        ],
+
+        // Speech from a VoiceStudio server (OmniVoice), through its OpenAI-compatible
+        // POST /v1/audio/speech. Voices are the server's profiles, read from GET /v1/audio/voices;
+        // engines that can't clone (cloning: false) only have the default voice. The server
+        // quietly swaps an unknown voice for the default, so the voice is checked here first.
+        'voicestudio' => [
+            'reach' => env('OMNIVOICE_REACH', 'VoiceStudio'),
+            'local' => true,
+            'url' => env('OMNIVOICE_URL'),
+            'key' => env('OMNIVOICE_API_KEY'),
+            'models' => [
+                'omnivoice' => ['label' => 'OmniVoice', 'kind' => 'audio', 'price' => null, 'cloning' => true,
+                    'capabilities' => ['formats' => ['mp3', 'wav'], 'speeds' => [0.75, 1, 1.25, 1.5], 'max_inputs' => 0],
+                    'purpose' => 'Voiceovers in your own cloned voices, 600+ languages'],
+                'kittentts' => ['label' => 'KittenTTS', 'kind' => 'audio', 'price' => null, 'cloning' => false,
+                    'capabilities' => ['formats' => ['mp3', 'wav'], 'speeds' => [0.75, 1, 1.25, 1.5], 'max_inputs' => 0],
+                    'purpose' => 'A light English voice when the GPU is busy; slower to answer'],
             ],
         ],
 

@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Storage;
  * An image or video in the media library. Files live on the private disk and are only
  * served to their owner.
  */
-#[Fillable(['kind', 'source', 'name', 'path', 'poster_path', 'mime', 'size', 'width', 'height', 'duration', 'meta'])]
+#[Fillable(['kind', 'source', 'name', 'path', 'poster_path', 'mime', 'size', 'width', 'height', 'duration', 'meta', 'board_id'])]
 class Asset extends Model
 {
     /** @use HasFactory<AssetFactory> */
@@ -81,6 +81,9 @@ class Asset extends Model
             'width' => $this->width,
             'height' => $this->height,
             'duration' => $this->duration,
+            'board_id' => $this->board_id,
+            // What a voiceover says, so it can be read alongside the player.
+            'script' => $this->kind === 'audio' ? ($this->meta['prompt'] ?? null) : null,
             'created_at' => $this->created_at?->toIso8601ZuluString(),
         ];
     }

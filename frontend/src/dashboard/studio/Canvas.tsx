@@ -457,6 +457,8 @@ function AssetView({ asset }: { asset: Asset | undefined }) {
     <div className="p-2 pt-0">
       {asset.kind === 'video' ? (
         <video src={asset.url} poster={asset.poster_url ?? undefined} controls playsInline className="w-full rounded-lg bg-black" onPointerDown={(e) => e.stopPropagation()} />
+      ) : asset.kind === 'audio' ? (
+        <audio src={asset.url} controls className="w-full" onPointerDown={(e) => e.stopPropagation()} />
       ) : (
         <img src={asset.url} alt={asset.name ?? ''} draggable={false} className="w-full rounded-lg" />
       )}

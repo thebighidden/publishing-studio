@@ -14,11 +14,21 @@ use Illuminate\Support\Facades\Http;
  */
 class OpenAiCompatibleGenerator implements TextGenerator
 {
+    /**
+     * @param  string|null  $fixedEffort  When set, every call uses this effort whatever the caller
+     *                                    asked for (AI_GATEWAY_REASONING_EFFORT). "low" is how to run
+     *                                    GLM without thinking: see reasoning() below.
+     * @param  list<string>  $plainModels  Model-name prefixes that answer without thinking unless told
+     *                                     otherwise (AI_GATEWAY_PLAIN_MODELS, e.g. gemma4). They are never
+     *                                     sent reasoning_effort, because any value turns thinking on.
+     */
     public function __construct(
         private readonly string $provider,
         private readonly string $baseUrl,
         private readonly ?string $key,
         private readonly ?UsageMeter $usage = null,
+        private readonly ?string $fixedEffort = null,
+        private readonly array $plainModels = [],
     ) {}
 
     public function enabled(): bool
@@ -33,7 +43,7 @@ class OpenAiCompatibleGenerator implements TextGenerator
             'stream' => true,
             'stream_options' => ['include_usage' => true],
             'messages' => [['role' => 'system', 'content' => $system], ['role' => 'user', 'content' => $prompt]],
-            ...$this->reasoning($effort),
+            ...$this->reasoning($effort, $model),
         ], stream: true);
 
         $body = $response->toPsrResponse()->getBody();
@@ -85,7 +95,7 @@ class OpenAiCompatibleGenerator implements TextGenerator
                 ['role' => 'user', 'content' => is_string($content) ? $content : $this->blocks($content)],
             ],
             'response_format' => ['type' => 'json_schema', 'json_schema' => ['name' => 'reply', 'schema' => $schema, 'strict' => true]],
-            ...$this->reasoning($effort),
+            ...$this->reasoning($effort, $model),
         ]);
 
         $this->usage?->record($this->provider, $model, (int) $response->json('usage.prompt_tokens', 0), (int) $response->json('usage.completion_tokens', 0));
@@ -110,11 +120,21 @@ class OpenAiCompatibleGenerator implements TextGenerator
      * being separated out, so the monologue lands inside `content` (complete with a stray
      * `</think>`) and ends up in a caption. Capped at "high" because xhigh/max aren't accepted here.
      *
+     * Plain models are the opposite case: Gemma 4 answers directly by default, and sending it
+     * reasoning_effort — even "low" — switches thinking on (measured: 0 → 800+ characters of
+     * reasoning, 1.1s → 2.7s). So they get nothing.
+     *
      * @return array<string, string>
      */
-    private function reasoning(?string $effort): array
+    private function reasoning(?string $effort, string $model): array
     {
-        return match ($effort) {
+        foreach ($this->plainModels as $prefix) {
+            if ($prefix !== '' && str_starts_with($model, $prefix)) {
+                return [];
+            }
+        }
+
+        return match ($this->fixedEffort ?: $effort) {
             'low' => ['reasoning_effort' => 'low'],
             'medium' => ['reasoning_effort' => 'medium'],
             'high', 'xhigh', 'max' => ['reasoning_effort' => 'high'],

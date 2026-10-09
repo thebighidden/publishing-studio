@@ -8,6 +8,7 @@ use App\Models\Generation;
 use App\Models\ModelEval;
 use App\Models\User;
 use App\Services\Ai\GenerationFailed;
+use App\Services\Ai\OpenAiCompatibleGenerator;
 use App\Services\Ai\TextGenerator;
 use Generator;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -184,6 +185,96 @@ class StudioGenerationTest extends TestCase
             && $r['aspect_ratio'] === '4:5' && ! isset($r['resolution']));
     }
 
+    private function voiceStudio(array $engines = ['omnivoice' => true, 'kittentts' => false]): void
+    {
+        config(['ai.providers.voicestudio.url' => 'http://voice.test:3900', 'ai.providers.voicestudio.key' => 'vkey']);
+        Http::fake([
+            'voice.test:3900/v1/audio/voices' => Http::response([
+                'voices' => [
+                    ['voice_id' => 'f2b7a8cf', 'name' => 'The Calm Guide', 'type' => 'profile', 'language' => 'English'],
+                    ['voice_id' => 'alloy', 'name' => 'Alloy', 'type' => 'openai_alias'],
+                ],
+                'engines' => collect($engines)->map(fn ($up, $id) => ['id' => $id, 'available' => $up])->values()->all(),
+            ]),
+            // An MP3 as the server sends it: an ID3 tag, then a frame.
+            'voice.test:3900/v1/audio/speech' => Http::response("ID3\x04\x00\x00\x00\x00\x00\x00\xFF\xFB\x90\x00".str_repeat("\x00", 413), 200, ['Content-Type' => 'audio/mpeg']),
+        ]);
+    }
+
+    public function test_voicestudio_offers_its_cloned_voices_and_says_which_engines_are_down(): void
+    {
+        $this->fakeClaude();
+        $this->voiceStudio();
+
+        $list = collect($this->actingAs(User::factory()->create())->spa()->getJson('/api/models')->assertOk()->json('models'))->keyBy('id');
+
+        $omni = $list['voicestudio/omnivoice'];
+        $this->assertSame(['audio', true, 'VoiceStudio'], [$omni['kind'], $omni['available'], $omni['reach']]);
+        // The OpenAI aliases all mean the default voice, so they're folded into it.
+        $this->assertSame(['default', 'f2b7a8cf'], array_column($omni['capabilities']['voices'], 'id'));
+        $this->assertSame(['mp3', 'wav'], $omni['capabilities']['formats']);
+        $this->assertSame('The KittenTTS engine isn’t running on the VoiceStudio server.', $list['voicestudio/kittentts']['reason']);
+        Http::assertSent(fn (Request $r) => $r->url() === 'http://voice.test:3900/v1/audio/voices' && $r->hasHeader('Authorization', 'Bearer vkey'));
+    }
+
+    public function test_the_voicestudio_connector_test_reports_a_bad_key_and_a_good_one(): void
+    {
+        $this->fakeClaude();
+        config(['ai.providers.voicestudio.url' => 'http://voice.test:3900', 'ai.providers.voicestudio.key' => 'vkey']);
+        Http::fake(['voice.test:3900/v1/audio/voices' => Http::sequence()
+            ->push(['detail' => 'Missing or invalid API key'], 401)
+            ->push(['voices' => [['voice_id' => 'a1', 'name' => 'Host voice', 'type' => 'profile']], 'engines' => [['id' => 'omnivoice', 'available' => true]]])]);
+        $this->actingAs(User::factory()->create());
+
+        $this->spa()->postJson('/api/models/test/voicestudio')->assertJsonPath('ok', false)->assertJsonPath('message', 'VoiceStudio rejected the API key.');
+        $this->spa()->postJson('/api/models/test/voicestudio')->assertJsonPath('ok', true)->assertJsonPath('message', 'Connected. 1 voice; omnivoice ready.');
+    }
+
+    public function test_a_script_is_read_in_a_cloned_voice_and_kept_in_the_library(): void
+    {
+        $this->fakeClaude();
+        $this->voiceStudio();
+        $script = 'Slow mornings start here. Fresh bread, warm coffee, and a seat by the window.';
+
+        $id = $this->actingAs(User::factory()->create())->spa()->postJson('/api/generations', [
+            'kind' => 'audio', 'model' => 'voicestudio/omnivoice', 'prompt' => $script,
+            'params' => ['voice' => 'f2b7a8cf', 'speed' => 1.25, 'format' => 'mp3'],
+        ])->assertCreated()->json('id');
+
+        $generation = Generation::find($id);
+        $this->assertSame('succeeded', $generation->status, (string) $generation->error);
+        $asset = Asset::find($generation->output_asset_ids[0]);
+        $this->assertSame(['audio', 'generated', 'audio/mpeg'], [$asset->kind, $asset->source, $asset->mime]);
+        $this->assertStringEndsWith('.mp3', $asset->name);
+        $this->assertStringEndsWith('.mp3', $asset->path);
+        $this->spa()->getJson("/api/generations/{$id}")->assertJsonPath('outputs.0.script', $script)->assertJsonPath('outputs.0.poster_url', null);
+        $this->spa()->getJson('/api/assets?kind=audio')->assertOk()->assertJsonPath('data.0.id', $asset->id);
+
+        Http::assertSent(fn (Request $r) => $r->url() === 'http://voice.test:3900/v1/audio/speech'
+            && $r->hasHeader('Authorization', 'Bearer vkey')
+            && $r['model'] === 'omnivoice' && $r['input'] === $script && $r['voice'] === 'f2b7a8cf'
+            && $r['response_format'] === 'mp3' && $r['speed'] === 1.25);
+    }
+
+    public function test_a_voice_the_server_does_not_have_fails_instead_of_falling_back(): void
+    {
+        $this->fakeClaude();
+        $this->voiceStudio();
+        $user = User::factory()->create();
+
+        // VoiceStudio would answer an unknown voice in its default one, without saying so.
+        $id = $this->actingAs($user)->spa()->postJson('/api/generations', [
+            'kind' => 'audio', 'model' => 'voicestudio/omnivoice', 'prompt' => 'Hello there.', 'params' => ['voice' => 'nope123'],
+        ])->assertCreated()->json('id');
+        $this->assertSame(['failed', 'OmniVoice doesn’t have that voice. Pick one from the list.'], [Generation::find($id)->status, Generation::find($id)->error]);
+        Http::assertNotSent(fn (Request $r) => str_ends_with($r->url(), '/v1/audio/speech'));
+
+        $this->spa()->postJson('/api/generations', ['kind' => 'audio', 'model' => 'voicestudio/omnivoice', 'prompt' => 'Hi.', 'params' => ['format' => 'ogg', 'speed' => 5]])
+            ->assertJsonValidationErrors(['params.format', 'params.speed']);
+        $this->spa()->postJson('/api/generations', ['kind' => 'audio', 'model' => 'higgsfield/ideogram-4', 'prompt' => 'Hi.'])
+            ->assertJsonValidationErrors('model');
+    }
+
     public function test_video_starts_from_an_uploaded_image_and_failures_can_be_retried_differently(): void
     {
         $this->fakeClaude();
@@ -271,6 +362,53 @@ class StudioGenerationTest extends TestCase
         $this->assertSame('Slow mornings.', Generation::first()->output_text);
         $this->assertDatabaseHas('ai_usages', ['provider' => 'gateway', 'model' => 'llama-3.3-70b', 'input_tokens' => 12, 'output_tokens' => 4, 'user_id' => $user->id, 'purpose' => 'studio']);
         Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/chat/completions') && $r['model'] === 'llama-3.3-70b' && $r['stream'] === true);
+    }
+
+    public function test_a_fixed_reasoning_effort_overrides_every_caller_on_the_gateway(): void
+    {
+        $this->fakeClaude();
+        config(['ai.providers.gateway.url' => 'https://gw.example/v1', 'ai.providers.gateway.key' => 'team-key', 'ai.providers.gateway.reasoning_effort' => 'low']);
+        $sse = "data: {\"choices\":[{\"delta\":{\"content\":\"Calm.\"}}]}\n\ndata: [DONE]\n\n";
+        Http::fake([
+            'gw.example/v1/models' => Http::response(['data' => [['id' => 'glm-5.3-flash']]]),
+            'gw.example/v1/chat/completions' => Http::sequence()
+                ->push($sse, 200, ['Content-Type' => 'text/event-stream'])
+                ->push(['choices' => [['message' => ['content' => '{"headline":"Calm"}']]]])
+                ->push(['choices' => [['message' => ['content' => '{"headline":"Calm"}']]]]),
+        ]);
+
+        // Through the app: the studio's text generation goes out at "low".
+        $user = User::factory()->create();
+        $this->events($this->actingAs($user)->spa()->postJson('/api/generations/text', ['prompt' => 'A calm line', 'model' => 'gateway/glm-5.3-flash']));
+        Http::assertSent(fn (Request $r) => str_ends_with($r->url(), '/chat/completions') && $r['reasoning_effort'] === 'low');
+
+        // A caller asking for "medium" still gets "low" while the setting is on...
+        $schema = ['type' => 'object', 'properties' => ['headline' => ['type' => 'string']], 'required' => ['headline']];
+        (new OpenAiCompatibleGenerator('gateway', 'https://gw.example/v1', 'team-key', null, 'low'))->json('glm-5.3-flash', 'sys', 'go', $schema, 'medium');
+        // ...and its own choice when the setting is empty.
+        (new OpenAiCompatibleGenerator('gateway', 'https://gw.example/v1', 'team-key'))->json('glm-5.3-flash', 'sys', 'go', $schema, 'medium');
+
+        $efforts = collect(Http::recorded())->map(fn ($pair) => $pair[0])
+            ->filter(fn (Request $r) => str_ends_with($r->url(), '/chat/completions'))
+            ->map(fn (Request $r) => $r['reasoning_effort'] ?? null)->values()->all();
+        $this->assertSame(['low', 'low', 'medium'], $efforts);
+    }
+
+    public function test_plain_models_are_never_sent_a_reasoning_effort(): void
+    {
+        Http::fake(['gw.example/v1/chat/completions' => Http::response(['choices' => [['message' => ['content' => '{"headline":"Calm"}']]]])]);
+        $schema = ['type' => 'object', 'properties' => ['headline' => ['type' => 'string']], 'required' => ['headline']];
+        $gateway = new OpenAiCompatibleGenerator('gateway', 'https://gw.example/v1', 'team-key', null, 'low', ['gemma4']);
+
+        // Gemma answers directly; any reasoning_effort would switch its thinking on, so none is sent,
+        // not the gateway's "low" and not a caller's "medium". GLM on the same gateway still gets "low".
+        $gateway->json('gemma4:31b', 'sys', 'go', $schema, 'medium');
+        $gateway->json('glm-5.3-flash', 'sys', 'go', $schema, 'medium');
+
+        $sent = collect(Http::recorded())->map(fn ($pair) => $pair[0]);
+        $this->assertFalse(isset($sent[0]['reasoning_effort']));
+        $this->assertSame('gemma4:31b', $sent[0]['model']);
+        $this->assertSame('low', $sent[1]['reasoning_effort']);
     }
 
     public function test_evals_score_a_model_by_rules_and_by_a_judge(): void

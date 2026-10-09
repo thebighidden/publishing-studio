@@ -18,7 +18,7 @@ class RecipeController extends Controller
     {
         $definition = $recipes->all()[$recipe] ?? abort(404);
         $user = $request->user();
-        $available = fn (string $kind) => collect($models->all($kind))->where('available', true)->pluck('id')->all();
+        $available = fn (string $kind) => collect($models->all($kind))->where('available', true)->reject(fn (array $m) => $m['capabilities']->upscale ?? false)->pluck('id')->all();
         $needs = fn (string $kind) => in_array($kind, $definition['steps'], true);
 
         $data = $request->validate([

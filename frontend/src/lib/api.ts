@@ -44,10 +44,10 @@ export type Post = {
   campaign?: { id: number; name: string | null } | null
 }
 
-/** An image or video in the media library. */
+/** An image, video or voiceover in the media library. */
 export type Asset = {
   id: number
-  kind: 'image' | 'video'
+  kind: 'image' | 'video' | 'audio'
   source: 'upload' | 'generated' | 'screenshot' | 'intake'
   name: string | null
   url: string
@@ -57,7 +57,54 @@ export type Asset = {
   width: number | null
   height: number | null
   duration: number | null
+  /** What a voiceover says. */
+  script?: string | null
+  board_id?: number | null
   created_at: string
+}
+
+/** A named shelf in the Creative Lab gallery. */
+export type Board = { id: number; name: string; count: number; cover_url: string | null }
+
+/** GET /boards */
+export type Boards = { data: Board[]; unfiled: number }
+
+export type WorkflowStepType = 'image' | 'upscale' | 'video' | 'voice' | 'write' | 'post'
+
+/** One step in a workflow. {prompt} is what the run starts with; {caption}, the latest text written. */
+export type WorkflowStep = {
+  type: WorkflowStepType
+  model?: string | null
+  prompt?: string
+  script?: string
+  aspect_ratio?: string
+  duration?: number
+  scale?: number
+  voice?: string
+  use_previous?: boolean
+  platforms?: string[]
+}
+
+export type Workflow = { id: number; name: string; steps: WorkflowStep[]; updated_at: string | null }
+
+/** GET /workflows */
+export type Workflows = {
+  data: Workflow[]
+  templates: Array<{ name: string; body: string; needs_image?: boolean; steps: WorkflowStep[] }>
+  types: Array<{ id: WorkflowStepType; kind: 'image' | 'video' | 'audio' | 'text' | null; label: string }>
+}
+
+export type WorkflowRun = {
+  id: number
+  workflow_id: number | null
+  name: string
+  prompt: string | null
+  status: 'running' | 'succeeded' | 'failed'
+  step: number
+  error: string | null
+  steps: Array<{ type: WorkflowStepType; status: 'waiting' | 'running' | 'succeeded' | 'failed'; assets: Asset[]; text: string | null; post_id: number | null }>
+  created_at: string
+  finished_at: string | null
 }
 
 export type EditorialProfile = Partial<Record<'tone' | 'topics' | 'style' | 'do' | 'avoid' | 'language' | 'hashtags', string>>
@@ -262,10 +309,10 @@ export type Investigation = {
 /** A model in the registry: local or cloud, and whether it can run right now. */
 export type ModelInfo = {
   id: string
-  provider: 'anthropic' | 'gateway' | 'ollama' | 'higgsfield' | 'google'
+  provider: 'anthropic' | 'gateway' | 'ollama' | 'higgsfield' | 'google' | 'invoke' | 'voicestudio'
   model: string
   label: string
-  kind: 'text' | 'image' | 'video'
+  kind: 'text' | 'image' | 'video' | 'audio'
   /** How it's reached: Claude API, Gateway, Ollama, Higgsfield API. */
   reach: string
   local: boolean
@@ -287,6 +334,18 @@ export type ModelInfo = {
     audio_always_on?: boolean
     seed?: boolean
     max_outputs?: number
+    /** Speech: the voices it can read in, the file types and the speeds offered. */
+    voices?: Array<{ id: string; name: string; language: string | null }>
+    formats?: string[]
+    speeds?: number[]
+    /** Takes a negative prompt; render settings with their defaults; can repaint a masked area. */
+    negative_prompt?: boolean
+    steps?: number
+    guidance?: number
+    edit?: boolean
+    /** An upscaler: takes an image and makes it larger; can't make one from a prompt. */
+    upscale?: boolean
+    scales?: number[]
   }
 }
 
@@ -313,7 +372,7 @@ export type Registry = { models: ModelInfo[]; providers: ModelProvider[]; recipe
 
 export type Generation = {
   id: number
-  kind: 'text' | 'image' | 'video'
+  kind: 'text' | 'image' | 'video' | 'audio'
   model: string
   model_label: string
   status: 'queued' | 'running' | 'succeeded' | 'failed' | 'canceled'

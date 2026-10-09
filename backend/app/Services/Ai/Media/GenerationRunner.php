@@ -8,6 +8,7 @@ use App\Services\Ai\GenerationFailed;
 use App\Services\Ai\Models\ModelRegistry;
 use App\Services\Ai\Models\Recipes;
 use App\Services\Ai\UsageMeter;
+use App\Services\Ai\Workflows\WorkflowRunner;
 use App\Services\Campaigns\Pipeline;
 use App\Services\Media\AssetStore;
 use Illuminate\Http\Client\ConnectionException;
@@ -15,7 +16,7 @@ use Illuminate\Support\Facades\Http;
 use Throwable;
 
 /**
- * Takes an image or video generation from queued to done: submit to the provider, poll
+ * Takes an image, video or speech generation from queued to done: submit to the provider, poll
  * (through the queue, never a tight loop), bring the results into the media library, record
  * the cost, and move a recipe on to its next step.
  */
@@ -35,7 +36,7 @@ class GenerationRunner
         $model = $this->models->find($generation->model);
         try {
             if (! $model || $model['kind'] !== $generation->kind) {
-                throw new GenerationFailed('That model can’t make '.($generation->kind === 'video' ? 'videos' : 'images').'.');
+                throw new GenerationFailed('That model can’t make '.(['video' => 'videos', 'audio' => 'speech'][$generation->kind] ?? 'images').'.');
             }
             if (! $model['available']) {
                 throw new GenerationFailed("{$model['label']} isn’t available: {$model['reason']}");
@@ -105,10 +106,11 @@ class GenerationRunner
                 $contents = isset($out['b64'])
                     ? base64_decode($out['b64'])
                     : Http::timeout(300)->withHeaders($out['headers'] ?? [])->get($out['url'])->throw()->body();
-                $mime = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents) ?: $out['mime'];
+                $sniffed = (new \finfo(FILEINFO_MIME_TYPE))->buffer($contents);
+                $mime = $sniffed && $sniffed !== 'application/octet-stream' ? $sniffed : $out['mime'];
                 $ids[] = $this->assets->fromContents($user, $contents, $mime, $this->name($generation, $i, $mime), 'generated', [
                     'generation_id' => $generation->id, 'model' => $generation->model, 'prompt' => $generation->prompt,
-                ])->id;
+                ], ['board_id' => $generation->board_id])->id;
             }
         } catch (ConnectionException|Throwable $e) {
             report($e);
@@ -139,11 +141,14 @@ class GenerationRunner
         $this->report($generation);
     }
 
-    /** A campaign's media team is waiting on this one. */
+    /** A campaign's media team, or a workflow run, is waiting on this one. */
     private function report(Generation $generation): void
     {
         if ($generation->campaign_item_id) {
             app(Pipeline::class)->mediaSettled($generation->fresh());
+        }
+        if ($generation->workflow_run_id) {
+            app(WorkflowRunner::class)->settled($generation->fresh());
         }
     }
 
@@ -156,7 +161,9 @@ class GenerationRunner
             'higgsfield' => app(HiggsfieldProvider::class),
             'gateway' => app(GatewayImageProvider::class),
             'google' => app(GoogleGenAiProvider::class),
-            default => throw new GenerationFailed('That provider doesn’t make images or video.'),
+            'voicestudio' => app(VoiceStudioProvider::class),
+            'invoke' => app(InvokeProvider::class),
+            default => throw new GenerationFailed('That provider doesn’t make images, video or speech.'),
         };
     }
 
@@ -164,6 +171,12 @@ class GenerationRunner
     {
         $words = str($generation->prompt)->lower()->replaceMatches('/[^\pL\pN]+/u', '-')->trim('-')->limit(40, '');
 
-        return "{$words}".($i ? '-'.($i + 1) : '').'.'.(str_starts_with($mime, 'video/') ? 'mp4' : 'png');
+        $extension = match (true) {
+            str_starts_with($mime, 'video/') => 'mp4',
+            str_starts_with($mime, 'audio/') => str_contains($mime, 'wav') ? 'wav' : 'mp3',
+            default => 'png',
+        };
+
+        return "{$words}".($i ? '-'.($i + 1) : '').'.'.$extension;
     }
 }

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type DragEvent, type ReactNode } from 'react'
 import { AnimatePresence, motion } from 'framer-motion'
-import { Check, Film, ImagePlus, Play, Sparkles, Trash2, Upload } from 'lucide-react'
+import { AudioLines, Check, Film, ImagePlus, Play, Sparkles, Trash2, Upload } from 'lucide-react'
 import { api, ApiError, uploadFiles, type Asset, type Page } from '../../lib/api'
 import { ease } from '../../lib/motion'
 import { cn } from '../../lib/cn'
@@ -27,21 +27,22 @@ export function fmtShape(a: Pick<Asset, 'width' | 'height'>) {
   return `${a.width} × ${a.height}${named ? ` · ${named[1]}` : ''}`
 }
 
-/** A square tile: the image, or a video's poster with its length. */
+/** A square tile: the image, a video's poster with its length, or a waveform for speech. */
 export function MediaThumb({ asset, className, children }: { asset: Asset; className?: string; children?: ReactNode }) {
+  const Icon = asset.kind === 'audio' ? AudioLines : Film
   return (
     <span className={cn('relative block aspect-square overflow-hidden rounded-md bg-white/[0.04]', className)}>
       {asset.poster_url ? (
         <img src={asset.poster_url} alt={asset.name ?? ''} loading="lazy" className="size-full object-cover" />
       ) : (
         <span className="grid size-full place-items-center text-dim">
-          <Film className="size-5" strokeWidth={1.5} />
+          <Icon className="size-5" strokeWidth={1.5} />
         </span>
       )}
-      {asset.kind === 'video' && (
-        <span className="absolute bottom-1 left-1 flex items-center gap-1 rounded bg-black/60 px-1.5 py-0.5 font-mono text-[9.5px] text-white backdrop-blur">
+      {(asset.kind === 'video' || asset.kind === 'audio') && (
+        <span className="absolute bottom-1 left-1 flex items-center gap-1 whitespace-nowrap rounded bg-black/60 px-1.5 py-0.5 font-mono text-[9.5px] text-white backdrop-blur">
           <Play className="size-2.5" fill="currentColor" />
-          {asset.duration ? fmtSeconds(asset.duration) : 'Video'}
+          {asset.duration ? fmtSeconds(asset.duration) : asset.kind === 'audio' ? 'Audio' : 'Video'}
         </span>
       )}
       {asset.source === 'generated' && (
@@ -139,13 +140,16 @@ export function Dropzone({ onFiles, progress, compact }: { onFiles: (files: File
   )
 }
 
-type Kind = 'all' | 'image' | 'video' | 'generated'
+type Kind = 'all' | 'image' | 'video' | 'audio' | 'generated'
 const KINDS: Array<{ value: Kind; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'image', label: 'Images' },
   { value: 'video', label: 'Videos' },
+  { value: 'audio', label: 'Audio' },
   { value: 'generated', label: 'AI' },
 ]
+// Posts carry images and video; voiceovers stay in the library.
+const POST_KINDS = KINDS.filter((k) => k.value !== 'audio')
 
 function useLibrary(kind: Kind) {
   return useApi<Page<Asset>>('/assets', kind === 'generated' ? { source: 'generated' } : kind === 'all' ? undefined : { kind })
@@ -224,6 +228,12 @@ export function AssetModal({ asset, onClose }: { asset: Asset | null; onClose: (
           <div className="grid max-h-[60vh] place-items-center overflow-hidden rounded-lg bg-black">
             {asset.kind === 'video' ? (
               <video src={asset.url} poster={asset.poster_url ?? undefined} controls playsInline className="max-h-[60vh] w-full" />
+            ) : asset.kind === 'audio' ? (
+              <div className="flex w-full flex-col items-center gap-5 px-5 py-10">
+                <AudioLines className="size-10 text-accent-soft" strokeWidth={1.25} />
+                {asset.script && <p className="line-clamp-4 text-center text-[12.5px] text-muted">{asset.script}</p>}
+                <audio src={asset.url} controls className="w-full" />
+              </div>
             ) : (
               <img src={asset.url} alt={asset.name ?? ''} className="max-h-[60vh] w-full object-contain" />
             )}
@@ -232,8 +242,8 @@ export function AssetModal({ asset, onClose }: { asset: Asset | null; onClose: (
             <dl className="space-y-2.5 text-[12.5px]">
               {(
                 [
-                  ['Shape', fmtShape(asset)],
-                  ...(asset.kind === 'video' ? [['Length', asset.duration ? fmtSeconds(asset.duration) : 'Unknown']] : []),
+                  ...(asset.kind === 'audio' ? [] : [['Shape', fmtShape(asset)]]),
+                  ...(asset.kind !== 'image' ? [['Length', asset.duration ? fmtSeconds(asset.duration) : 'Unknown']] : []),
                   ['Size', fmtBytes(asset.size)],
                   ['Type', asset.mime],
                   ['From', { upload: 'Uploaded', generated: 'Generated with AI', screenshot: 'Phone screenshot', intake: 'Campaign intake' }[asset.source]],
@@ -291,9 +301,9 @@ export function MediaPicker({
     <Modal open={open} onClose={onClose} title="Add media" className="max-w-3xl">
       <div className="space-y-4">
         <Dropzone onFiles={upload} progress={progress} compact />
-        <Segmented id="picker-kind" label="Kind" options={KINDS} value={kind} onChange={setKind} />
+        <Segmented id="picker-kind" label="Kind" options={POST_KINDS} value={kind} onChange={setKind} />
         <div className="no-scrollbar grid max-h-[46vh] grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-5" data-lenis-prevent>
-          {data?.data.map((a) => {
+          {data?.data.filter((a) => a.kind !== 'audio').map((a) => {
             const n = picked.findIndex((x) => x.id === a.id)
             return (
               <button key={a.id} type="button" onClick={() => toggle(a)} aria-pressed={n >= 0} className="text-left">

@@ -7,6 +7,9 @@ use App\Models\ConnectorTest;
 use App\Models\ModelEval;
 use App\Services\Ai\GenerationFailed;
 use App\Services\Ai\Media\HiggsfieldClient;
+use App\Services\Ai\Media\InvokeClient;
+use App\Services\Ai\Media\InvokeGraphs;
+use App\Services\Ai\Media\VoiceStudioClient;
 use App\Services\Ai\OpenAiCompatibleGenerator;
 use App\Services\Ai\TextGenerator;
 use App\Services\Ai\UsageMeter;
@@ -23,7 +26,13 @@ use Throwable;
  */
 class ModelRegistry
 {
-    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield', 'google'];
+    public const PROVIDERS = ['anthropic', 'gateway', 'ollama', 'higgsfield', 'google', 'invoke', 'voicestudio'];
+
+    /** What InvokeAI image models offer in the studio: shapes, render settings, variations and edits. */
+    private const INVOKE_CAPABILITIES = [
+        'aspect_ratios' => ['1:1', '4:5', '3:4', '2:3', '9:16', '16:9', '3:2', '4:3'],
+        'max_inputs' => 0, 'seed' => true, 'max_outputs' => 4, 'negative_prompt' => true, 'edit' => true,
+    ];
 
     public function __construct(private readonly TextGenerator $claude, private readonly UsageMeter $usage) {}
 
@@ -32,7 +41,7 @@ class ModelRegistry
      */
     public function all(?string $kind = null): array
     {
-        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield(), ...$this->google()];
+        $models = [...$this->anthropic(), ...$this->gateway(), ...$this->ollama(), ...$this->higgsfield(), ...$this->google(), ...$this->invoke(), ...$this->voicestudio()];
         $scores = ModelEval::query()
             ->selectRaw('model, avg(score) as score')
             ->whereIn('id', ModelEval::query()->selectRaw('max(id)')->groupBy('model', 'task'))
@@ -99,7 +108,7 @@ class ModelRegistry
 
         return [match ($model['provider']) {
             'anthropic' => $this->claude,
-            'gateway' => new OpenAiCompatibleGenerator('gateway', rtrim(config('ai.providers.gateway.url'), '/'), config('ai.providers.gateway.key'), $this->usage),
+            'gateway' => new OpenAiCompatibleGenerator('gateway', rtrim(config('ai.providers.gateway.url'), '/'), config('ai.providers.gateway.key'), $this->usage, config('ai.providers.gateway.reasoning_effort') ?: null, config('ai.providers.gateway.plain_models', [])),
             'ollama' => new OpenAiCompatibleGenerator('ollama', rtrim(config('ai.providers.ollama.url'), '/').'/v1', null, $this->usage),
         }, $model['model']];
     }
@@ -117,6 +126,8 @@ class ModelRegistry
                 'ollama' => $this->testOllama(),
                 'higgsfield' => app(HiggsfieldClient::class)->test(),
                 'google' => $this->testGoogle(),
+                'voicestudio' => $this->testVoiceStudio(),
+                'invoke' => app(InvokeClient::class)->test(),
             };
             $ok = true;
         } catch (Throwable $e) {
@@ -153,6 +164,8 @@ class ModelRegistry
                     'ollama' => 'Set OLLAMA_URL to an Ollama server, e.g. http://ollama:11434.',
                     'higgsfield' => 'Set HIGGSFIELD_KEY_ID and HIGGSFIELD_KEY_SECRET, and HIGGSFIELD_PLAN to the models your plan includes.',
                     'google' => 'Set GEMINI_API_KEY for Gemini image generation and Veo video generation.',
+                    'invoke' => 'Set INVOKE_URL to an InvokeAI server, e.g. http://gpu-box:9090.',
+                    'voicestudio' => 'Set OMNIVOICE_URL to a VoiceStudio server, e.g. http://gpu-box:3900, and OMNIVOICE_API_KEY.',
                 ][$p],
                 'test' => $test ? ['ok' => $test->ok, 'message' => $test->message, 'latency_ms' => $test->latency_ms, 'at' => $test->created_at?->toIso8601ZuluString()] : null,
             ];
@@ -167,6 +180,8 @@ class ModelRegistry
             'ollama' => filled(config('ai.providers.ollama.url')),
             'higgsfield' => filled(config('ai.providers.higgsfield.key_id')) && filled(config('ai.providers.higgsfield.key_secret')),
             'google' => filled(config('ai.providers.google.key')),
+            'voicestudio' => filled(config('ai.providers.voicestudio.url')) && filled(config('ai.providers.voicestudio.key')),
+            'invoke' => filled(config('ai.providers.invoke.url')),
             default => false,
         };
     }
@@ -271,6 +286,64 @@ class ModelRegistry
             $configured, $configured ? null : 'No Gemini API key is set.',
             capabilities: $m['capabilities'] ?? [],
         ))->values()->all();
+    }
+
+    /**
+     * Available when the server answers and the model's engine is running there; the voices
+     * come from the server, so the picker only offers ones it will actually use.
+     */
+    private function voicestudio(): array
+    {
+        $configured = $this->configured('voicestudio');
+        $client = app(VoiceStudioClient::class);
+        $server = $configured ? $client->server() : null;
+
+        return collect(config('ai.providers.voicestudio.models', []))->map(function (array $m, string $id) use ($configured, $server, $client) {
+            $reason = match (true) {
+                ! $configured => 'No VoiceStudio server is set up.',
+                (bool) $server['error'] => $server['error'],
+                ! ($server['engines'][$id] ?? false) => "The {$m['label']} engine isn’t running on the VoiceStudio server.",
+                default => null,
+            };
+
+            return $this->entry('voicestudio', $id, $m['label'], $m['kind'], $m['purpose'] ?? null, $reason === null, $reason,
+                capabilities: [...$m['capabilities'] ?? [], 'voices' => $reason === null ? $client->voicesFor($id) : []]);
+        })->values()->all();
+    }
+
+    /**
+     * The image models installed on the InvokeAI server. Ids use Invoke's model key, which
+     * survives renames; families FlowAI has no graph for are listed but can't run.
+     */
+    private function invoke(): array
+    {
+        if (! $this->configured('invoke')) {
+            return [];
+        }
+        $server = app(InvokeClient::class)->server();
+        // Built into Invoke: no model to install, so it's there whenever the server answers.
+        $upscaler = $this->entry('invoke', InvokeGraphs::UPSCALER, 'Real-ESRGAN upscaler', 'image', 'On your GPU · 2× or 4× larger and sharper, no prompt needed',
+            ! $server['error'], $server['error'], capabilities: ['upscale' => true, 'scales' => [2, 4], 'max_inputs' => 1, 'aspect_ratios' => []]);
+
+        return collect($server['models'])->map(function (array $m) use ($server) {
+            $reason = match (true) {
+                (bool) $server['error'] => $server['error'],
+                ! InvokeGraphs::supports($m['base'] ?? null) => "FlowAI can’t drive {$m['base']} models yet; Z-Image models work today.",
+                default => null,
+            };
+            $defaults = $m['default_settings'] ?? [];
+
+            return $this->entry('invoke', (string) $m['key'], (string) $m['name'], 'image',
+                // "Z-Image Turbo - fast 6B parameter text-to-image model with 8 inference steps. …"
+                'On your GPU · '.str((string) ($m['description'] ?? 'an InvokeAI model'))->after(' - ')->before('. ')->ucfirst()->limit(80),
+                $reason === null, $reason,
+                capabilities: [...self::INVOKE_CAPABILITIES, 'steps' => (int) ($defaults['steps'] ?? 9), 'guidance' => (float) ($defaults['cfg_scale'] ?? 1)]);
+        })->push($upscaler)->values()->all();
+    }
+
+    private function testVoiceStudio(): string
+    {
+        return app(VoiceStudioClient::class)->test();
     }
 
     private function testAnthropic(): string

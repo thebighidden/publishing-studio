@@ -9,7 +9,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 /**
- * Puts media in the library: uploads, generated images and videos, phone screenshots.
+ * Puts media in the library: uploads, generated images, videos and speech, phone screenshots.
  * Everything lands under assets/{user}/ on the private disk, measured on the way in.
  */
 class AssetStore
@@ -17,6 +17,8 @@ class AssetStore
     public const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
 
     public const VIDEO_TYPES = ['video/mp4', 'video/quicktime', 'video/webm'];
+
+    public const AUDIO_TYPES = ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/wave', 'audio/vnd.wave'];
 
     public function __construct(private readonly MediaInspector $inspector) {}
 
@@ -30,24 +32,31 @@ class AssetStore
 
     /**
      * @param  array<string, mixed>  $meta
+     * @param  array{board_id?: int|null}  $attributes
      */
-    public function fromContents(User $user, string $contents, string $mime, string $name, string $source, array $meta = []): Asset
+    public function fromContents(User $user, string $contents, string $mime, string $name, string $source, array $meta = [], array $attributes = []): Asset
     {
         $path = $this->directory($user).'/'.Str::random(32).'.'.$this->extension($mime);
         Storage::disk('local')->put($path, $contents);
 
-        return $this->finish($user, $path, $mime, $name, $source, $meta);
+        return $this->finish($user, $path, $mime, $name, $source, $meta, $attributes);
     }
 
     public static function kindOf(string $mime): ?string
     {
-        return in_array($mime, self::IMAGE_TYPES, true) ? 'image' : (in_array($mime, self::VIDEO_TYPES, true) ? 'video' : null);
+        return match (true) {
+            in_array($mime, self::IMAGE_TYPES, true) => 'image',
+            in_array($mime, self::VIDEO_TYPES, true) => 'video',
+            in_array($mime, self::AUDIO_TYPES, true) => 'audio',
+            default => null,
+        };
     }
 
     /**
      * @param  array<string, mixed>  $meta
+     * @param  array<string, mixed>  $attributes
      */
-    private function finish(User $user, string $path, string $mime, string $name, string $source, array $meta = []): Asset
+    private function finish(User $user, string $path, string $mime, string $name, string $source, array $meta = [], array $attributes = []): Asset
     {
         $disk = Storage::disk('local');
         $absolute = $disk->path($path);
@@ -70,6 +79,7 @@ class AssetStore
             'size' => $disk->size($path),
             ...$measured,
             'meta' => $meta ?: null,
+            ...$attributes,
         ]);
     }
 
@@ -83,6 +93,7 @@ class AssetStore
         return [
             'image/jpeg' => 'jpg', 'image/png' => 'png', 'image/webp' => 'webp', 'image/gif' => 'gif',
             'video/mp4' => 'mp4', 'video/quicktime' => 'mov', 'video/webm' => 'webm', 'image/svg+xml' => 'svg',
+            'audio/mpeg' => 'mp3', 'audio/mp3' => 'mp3', 'audio/wav' => 'wav', 'audio/x-wav' => 'wav', 'audio/wave' => 'wav', 'audio/vnd.wave' => 'wav',
         ][$mime] ?? (strtolower($fallback) ?: 'bin');
     }
 }

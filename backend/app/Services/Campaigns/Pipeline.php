@@ -468,7 +468,8 @@ class Pipeline
     /** The model the media team uses for a kind: the configured one if it can run, else any that can. */
     public function pick(string $kind): ?string
     {
-        $models = collect($this->models->all($kind))->where('available', true);
+        // An upscaler is an image model that can't make one from a prompt.
+        $models = collect($this->models->all($kind))->where('available', true)->reject(fn (array $m) => $m['capabilities']->upscale ?? false);
         $preferred = config("ai.agents.{$kind}_model");
 
         return $models->firstWhere('id', $preferred)['id'] ?? $models->first()['id'] ?? null;
